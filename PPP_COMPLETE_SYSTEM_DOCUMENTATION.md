@@ -422,6 +422,7 @@ To ensure the six degrees of rotational freedom are implemented correctly and ve
 - **Kerbelized Parserator v2**: Define a standalone ingestion microservice (Node + WebSocket) with pluggable preprocessing (`lowPassGyro`, `gravityIsolation`, `featureWindow`). Outputs normalized `RotationSnapshot` objects with timestamp and confidence.
 - **Sensor Coupling Profiles**: Implement `PlaneMappingProfile` records that map IMU channels to rotation planes with per-axis gain, clamp, and smoothing coefficients.
 - **Deterministic UBO Updates**: Within HypercubeCore, integrate a `UniformSyncQueue` that batches exactly one UBO upload per animation frame, guarded by dirty flags and measured via performance counters.
+- **Harmonic Rotation Loom**: Ship a default six-plane oscillator that weaves golden-ratio frequency ratios across spatial and hyperspatial planes so the Extrument always exposes a musically coherent SO(4) flow even before live sensors attach.
 - **Replay Harness**: Ship a CLI that replays recorded IMU datasets into the parserator, enabling regression tests without hardware.
 
 #### 5.3.5 Stage 4 – Projection Bridge & PSP Export

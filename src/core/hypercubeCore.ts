@@ -193,6 +193,9 @@ uniform float u_projectionDepth;
 uniform float u_lineWidth;
 uniform float u_time;
 
+out vec3 v_color;
+out float v_depth;
+
 vec4 rotateXY(vec4 v, float theta) {
   float c = cos(theta);
   float s = sin(theta);
@@ -269,12 +272,26 @@ vec4 applyRotations(vec4 v) {
   return v;
 }
 
+vec3 spectralPalette(float parameter) {
+  float hue = parameter;
+  return vec3(
+    0.60 + 0.38 * cos(6.2831 * hue),
+    0.62 + 0.36 * cos(6.2831 * hue + 2.094),
+    0.64 + 0.34 * cos(6.2831 * hue + 4.188)
+  );
+}
+
 void main() {
   vec4 rotated = applyRotations(a_position4d);
   float depth = max(u_projectionDepth - rotated.w, 0.2);
   vec3 projected = rotated.xyz / depth;
   gl_Position = vec4(projected.xy, projected.z * 0.5, 1.0);
   gl_PointSize = 4.0;
+
+  v_depth = depth;
+  float harmonic = 0.5 + 0.5 * sin(u_time * 0.3 + rotated.w * 1.2);
+  float contour = 0.35 + 0.65 * smoothstep(0.0, u_projectionDepth, depth);
+  v_color = spectralPalette(harmonic) * contour;
 }
 `;
 
@@ -283,16 +300,13 @@ precision highp float;
 uniform float u_time;
 uniform float u_lineWidth;
 
+in vec3 v_color;
+in float v_depth;
+
 out vec4 fragColor;
 
 void main() {
-  float hue = mod(u_time * 0.05 + gl_FragCoord.x * 0.0005, 1.0);
-  float intensity = 0.7 + 0.3 * sin(u_time * 0.5 + gl_FragCoord.y * 0.002);
-  vec3 base = vec3(
-    0.6 + 0.4 * sin(6.2831 * hue),
-    0.6 + 0.4 * sin(6.2831 * hue + 2.094),
-    0.6 + 0.4 * sin(6.2831 * hue + 4.188)
-  );
-  fragColor = vec4(base * intensity, 1.0);
+  float shimmer = 0.75 + 0.25 * sin(u_time * 0.7 + v_depth * 0.5);
+  fragColor = vec4(v_color * shimmer, 1.0);
 }
 `;
