@@ -1,9 +1,9 @@
 import { mat4, vec4 } from 'gl-matrix';
-import type { RotationAngles } from './rotationUniforms';
+import type { RotationAngles, RotationDualQuaternion } from './rotationUniforms';
 
-export function rotationMatrixFromAngles(angles: RotationAngles): mat4 {
+export function rotationMatrixFromAngles(angles: RotationAngles, out?: mat4): mat4 {
   const { xy, xz, yz, xw, yw, zw } = angles;
-  const m = mat4.create();
+  const m = out ?? mat4.create();
   mat4.identity(m);
 
   applyRotationToMatrix(m, xy, rotateXY);
@@ -153,14 +153,41 @@ function rotateZW(out: vec4 | mat4, angle: number): typeof out {
   return out;
 }
 
-export function composeDualQuaternion(angles: RotationAngles) {
+export function composeDualQuaternion(
+  angles: RotationAngles,
+  leftOut?: Float32Array,
+  rightOut?: Float32Array
+): RotationDualQuaternion {
   const { xy, xz, yz, xw, yw, zw } = angles;
-  const left = quaternionFromEuler(xy, xz, yz);
-  const right = quaternionFromEuler(xw, yw, zw);
+  const left = quaternionFromEuler(xy, xz, yz, leftOut);
+  const right = quaternionFromEuler(xw, yw, zw, rightOut);
   return { left, right };
 }
 
-function quaternionFromEuler(ax: number, ay: number, az: number): [number, number, number, number] {
+export function applyDualQuaternionRotation(
+  vector: vec4,
+  dual: RotationDualQuaternion,
+  out: vec4 = vec4.create()
+): vec4 {
+  const left = copyQuaternion(dual.left, scratchQuaternion0);
+  const right = copyQuaternion(dual.right, scratchQuaternion1);
+  const qVector = quaternionFromVector(vector, scratchQuaternion2);
+  const temp = multiplyQuaternion(quaternionNormalize(left), qVector, scratchQuaternion0);
+  const rightConjugate = conjugateQuaternion(quaternionNormalize(right), scratchQuaternion1);
+  const rotated = multiplyQuaternion(temp, rightConjugate, scratchQuaternion0);
+  out[0] = rotated[0];
+  out[1] = rotated[1];
+  out[2] = rotated[2];
+  out[3] = rotated[3];
+  return out;
+}
+
+function quaternionFromEuler(
+  ax: number,
+  ay: number,
+  az: number,
+  out?: Float32Array
+): Float32Array {
   const cx = Math.cos(ax * 0.5);
   const sx = Math.sin(ax * 0.5);
   const cy = Math.cos(ay * 0.5);
@@ -168,10 +195,74 @@ function quaternionFromEuler(ax: number, ay: number, az: number): [number, numbe
   const cz = Math.cos(az * 0.5);
   const sz = Math.sin(az * 0.5);
 
-  return [
-    sx * cy * cz + cx * sy * sz,
-    cx * sy * cz - sx * cy * sz,
-    cx * cy * sz + sx * sy * cz,
-    cx * cy * cz - sx * sy * sz
-  ];
+  const target = out ?? new Float32Array(4);
+  target[0] = sx * cy * cz + cx * sy * sz;
+  target[1] = cx * sy * cz - sx * cy * sz;
+  target[2] = cx * cy * sz + sx * sy * cz;
+  target[3] = cx * cy * cz - sx * sy * sz;
+  return target;
+}
+
+const scratchQuaternion0 = new Float32Array(4);
+const scratchQuaternion1 = new Float32Array(4);
+const scratchQuaternion2 = new Float32Array(4);
+
+function quaternionFromVector(vector: vec4, out: Float32Array) {
+  out[0] = vector[0];
+  out[1] = vector[1];
+  out[2] = vector[2];
+  out[3] = vector[3];
+  return out;
+}
+
+function copyQuaternion(source: Float32Array, out: Float32Array) {
+  out[0] = source[0];
+  out[1] = source[1];
+  out[2] = source[2];
+  out[3] = source[3];
+  return out;
+}
+
+function conjugateQuaternion(quaternion: Float32Array, out: Float32Array) {
+  out[0] = -quaternion[0];
+  out[1] = -quaternion[1];
+  out[2] = -quaternion[2];
+  out[3] = quaternion[3];
+  return out;
+}
+
+function multiplyQuaternion(
+  a: Float32Array,
+  b: Float32Array,
+  out: Float32Array
+) {
+  const ax = a[0];
+  const ay = a[1];
+  const az = a[2];
+  const aw = a[3];
+  const bx = b[0];
+  const by = b[1];
+  const bz = b[2];
+  const bw = b[3];
+
+  out[0] = aw * bx + ax * bw + ay * bz - az * by;
+  out[1] = aw * by - ax * bz + ay * bw + az * bx;
+  out[2] = aw * bz + ax * by - ay * bx + az * bw;
+  out[3] = aw * bw - ax * bx - ay * by - az * bz;
+  return out;
+}
+
+function quaternionNormalize(quaternion: Float32Array) {
+  const length = Math.hypot(quaternion[0], quaternion[1], quaternion[2], quaternion[3]);
+  if (length === 0) {
+    quaternion[3] = 1;
+    quaternion[0] = quaternion[1] = quaternion[2] = 0;
+    return quaternion;
+  }
+  const inv = 1 / length;
+  quaternion[0] *= inv;
+  quaternion[1] *= inv;
+  quaternion[2] *= inv;
+  quaternion[3] *= inv;
+  return quaternion;
 }

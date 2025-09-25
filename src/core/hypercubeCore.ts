@@ -199,6 +199,9 @@ layout(location = 0) in vec4 a_position4d;
 layout(std140) uniform RotationUniforms {
   vec4 spatial;    // xy, xz, yz, padding
   vec4 hyperspatial; // xw, yw, zw, padding
+  mat4 rotationMatrix;
+  vec4 quatLeft;
+  vec4 quatRight;
 };
 
 layout(std140) uniform StyleUniforms {
@@ -216,82 +219,8 @@ out float v_energy;
 out float v_thickness;
 out float v_chaos;
 out float v_harmonic;
-
-vec4 rotateXY(vec4 v, float theta) {
-  float c = cos(theta);
-  float s = sin(theta);
-  return vec4(
-    v.x * c - v.y * s,
-    v.x * s + v.y * c,
-    v.z,
-    v.w
-  );
-}
-
-vec4 rotateXZ(vec4 v, float theta) {
-  float c = cos(theta);
-  float s = sin(theta);
-  return vec4(
-    v.x * c - v.z * s,
-    v.y,
-    v.x * s + v.z * c,
-    v.w
-  );
-}
-
-vec4 rotateYZ(vec4 v, float theta) {
-  float c = cos(theta);
-  float s = sin(theta);
-  return vec4(
-    v.x,
-    v.y * c - v.z * s,
-    v.y * s + v.z * c,
-    v.w
-  );
-}
-
-vec4 rotateXW(vec4 v, float theta) {
-  float c = cos(theta);
-  float s = sin(theta);
-  return vec4(
-    v.x * c - v.w * s,
-    v.y,
-    v.z,
-    v.x * s + v.w * c
-  );
-}
-
-vec4 rotateYW(vec4 v, float theta) {
-  float c = cos(theta);
-  float s = sin(theta);
-  return vec4(
-    v.x,
-    v.y * c - v.w * s,
-    v.z,
-    v.y * s + v.w * c
-  );
-}
-
-vec4 rotateZW(vec4 v, float theta) {
-  float c = cos(theta);
-  float s = sin(theta);
-  return vec4(
-    v.x,
-    v.y,
-    v.z * c - v.w * s,
-    v.z * s + v.w * c
-  );
-}
-
-vec4 applyRotations(vec4 v) {
-  v = rotateXY(v, spatial.x);
-  v = rotateXZ(v, spatial.y);
-  v = rotateYZ(v, spatial.z);
-  v = rotateXW(v, hyperspatial.x);
-  v = rotateYW(v, hyperspatial.y);
-  v = rotateZW(v, hyperspatial.z);
-  return v;
-}
+out float v_isoclinic;
+out float v_chiral;
 
 vec3 spectralPalette(float parameter) {
   float hue = parameter;
@@ -303,7 +232,7 @@ vec3 spectralPalette(float parameter) {
 }
 
 void main() {
-  vec4 rotated = applyRotations(a_position4d);
+  vec4 rotated = rotationMatrix * a_position4d;
   float depth = max(u_projectionDepth - rotated.w, 0.2);
   vec3 projected = rotated.xyz / depth;
   gl_Position = vec4(projected.xy, projected.z * 0.5, 1.0);
@@ -316,19 +245,34 @@ void main() {
   float thickness = metricsB.z;
   float chaos = metricsB.w;
 
+  float isoclinicDot = clamp(dot(quatLeft, quatRight), -1.0, 1.0);
+  float isoPhase = isoclinicDot * 0.5 + 0.5;
+  vec3 leftVec = quatLeft.xyz;
+  vec3 rightVec = quatRight.xyz;
+  float chiralSpread = length(leftVec - rightVec);
+  float chiralTone = smoothstep(0.0, 1.4, clamp(chiralSpread, 0.0, 2.0));
+
+  float hueShift = chaos * 0.12 + energy * 0.08 + (isoPhase - 0.5) * 0.18;
+  float isoSaturation = clamp(saturation + (isoPhase - 0.5) * 0.22, 0.0, 1.0);
+  float isoBrightness = clamp(brightness + (1.0 - chiralTone) * 0.12, 0.0, 1.0);
+  float isoThickness = thickness * (1.0 + chiralTone * 0.45);
+  float isoChaos = clamp(chaos + chiralTone * 0.35, 0.0, 1.0);
+  float isoEnergy = clamp(mix(energy, 1.0, chiralTone * 0.15), 0.0, 1.0);
+
   float geometricMix = dot(rotated, vec4(0.12, 0.18, 0.24, 0.3));
-  float harmonic = fract(harmonicBase + geometricMix * 0.15);
-  float hueShift = chaos * 0.12 + energy * 0.08;
+  float harmonic = fract(harmonicBase + geometricMix * 0.12 + isoPhase * 0.33);
   vec3 baseColor = spectralPalette(fract(harmonic + hueShift));
-  vec3 neutral = vec3(brightness);
+  vec3 neutral = vec3(isoBrightness);
   float contour = 0.35 + 0.65 * smoothstep(0.0, u_projectionDepth, depth);
 
-  v_color = mix(neutral, baseColor, clamp(saturation, 0.0, 1.0)) * contour;
+  v_color = mix(neutral, baseColor, isoSaturation) * contour;
   v_depth = depth;
-  v_energy = energy;
-  v_thickness = thickness;
-  v_chaos = chaos;
+  v_energy = isoEnergy;
+  v_thickness = isoThickness;
+  v_chaos = isoChaos;
   v_harmonic = harmonic;
+  v_isoclinic = isoPhase;
+  v_chiral = chiralTone;
 }
 `;
 
@@ -349,6 +293,8 @@ in float v_energy;
 in float v_thickness;
 in float v_chaos;
 in float v_harmonic;
+in float v_isoclinic;
+in float v_chiral;
 
 out vec4 fragColor;
 
@@ -360,15 +306,16 @@ void main() {
   float energy = v_energy;
   float chaos = v_chaos;
   float harmonic = v_harmonic;
-  float shimmer = 0.65 + 0.35 * sin(u_time * (0.9 + energy * 0.8) + harmonic * 6.2831);
+  float shimmerBase = 0.65 + 0.35 * sin(u_time * (0.9 + energy * 0.8) + harmonic * 6.2831);
+  float shimmer = shimmerBase * mix(0.85, 1.22, v_isoclinic);
   float depthFade = smoothstep(1.2, 0.1, v_depth);
   float noiseSample = hash(gl_FragCoord.xy * (0.003 + chaos * 0.02));
-  float noise = mix(-0.08, 0.14, noiseSample) * chaos;
-  float widthPulse = 0.8 + 0.4 * sin(u_time * 1.4 + v_thickness * 1.2);
+  float noise = mix(-0.08, 0.14, noiseSample) * chaos * mix(0.45, 1.05, v_chiral);
+  float widthPulse = 0.82 + 0.38 * sin(u_time * (1.3 + v_isoclinic * 0.7) + v_thickness * 1.05);
 
-  vec3 color = v_color * shimmer * (0.7 + depthFade * 0.5);
+  vec3 color = (v_color + vec3(0.08, 0.15, 0.32) * v_chiral) * shimmer * (0.7 + depthFade * 0.5);
   color += vec3(noise);
-  float alpha = clamp(0.25 + energy * 0.55 + chaos * 0.15, 0.2, 1.0);
+  float alpha = clamp(0.24 + energy * 0.58 + chaos * 0.17 + v_chiral * 0.2, 0.2, 1.0);
 
   fragColor = vec4(color * widthPulse, alpha);
 }

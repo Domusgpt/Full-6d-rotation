@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { vec4, mat4 } from 'gl-matrix';
-import { applySequentialRotations, rotationMatrixFromAngles } from './so4';
+import { applyDualQuaternionRotation, applySequentialRotations, composeDualQuaternion, rotationMatrixFromAngles } from './so4';
 import type { RotationAngles } from './rotationUniforms';
 
 const ANGLES: RotationAngles = {
@@ -34,6 +34,23 @@ describe('SO(4) rotations', () => {
         const expected = i === j ? 1 : 0;
         expect(product[i * 4 + j]).toBeCloseTo(expected, 1e-5);
       }
+    }
+  });
+
+  it('can reuse matrix output buffer', () => {
+    const out = mat4.create();
+    const result = rotationMatrixFromAngles(ANGLES, out);
+    expect(result).toBe(out);
+  });
+
+  it('matches dual quaternion rotation', () => {
+    const vector = vec4.fromValues(-0.12, 0.51, -0.33, 0.9);
+    const sequential = applySequentialRotations(vector, ANGLES);
+    const dual = composeDualQuaternion(ANGLES);
+    const dualResult = applyDualQuaternionRotation(vector, dual);
+
+    for (let i = 0; i < 4; i++) {
+      expect(dualResult[i]).toBeCloseTo(sequential[i], 1e-4);
     }
   });
 });
