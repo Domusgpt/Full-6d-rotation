@@ -1,4 +1,5 @@
 import { RotationUniformBuffer, type RotationAngles } from './rotationUniforms';
+import { UniformSyncQueue, type UniformSyncMetrics } from './uniformSyncQueue';
 import type { GeometryData } from '../geometry/types';
 
 export interface HypercubeCoreOptions {
@@ -16,6 +17,8 @@ export class HypercubeCore {
   private lineWidth = 1.5;
   private lastTimestamp = 0;
   private animationHandle: number | null = null;
+  private readonly uniformQueue = new UniformSyncQueue();
+  private uniformMetrics: UniformSyncMetrics = this.uniformQueue.getMetrics();
 
   private uniforms!: {
     projectionDepth: WebGLUniformLocation;
@@ -76,7 +79,11 @@ export class HypercubeCore {
   }
 
   updateRotation(angles: RotationAngles) {
-    this.rotationBuffer.update(angles);
+    this.uniformQueue.enqueue(angles);
+  }
+
+  getUniformMetrics(): UniformSyncMetrics {
+    return { ...this.uniformMetrics };
   }
 
   start() {
@@ -104,6 +111,12 @@ export class HypercubeCore {
     const { gl } = this;
     gl.viewport(0, 0, gl.canvas.width, gl.canvas.height);
     gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+
+    const pending = this.uniformQueue.consume();
+    if (pending) {
+      this.rotationBuffer.update(pending);
+      this.uniformMetrics = this.uniformQueue.getMetrics();
+    }
 
     gl.useProgram(this.program);
     gl.bindVertexArray(this.vao);

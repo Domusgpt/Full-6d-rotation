@@ -18,6 +18,12 @@ export interface OrbitSpec {
   hyperCoupling?: number;
 }
 
+export interface LoomSample {
+  time: number;
+  energy: number;
+  angles: RotationAngles;
+}
+
 const GOLDEN_RATIO = (1 + Math.sqrt(5)) / 2;
 
 function defaultSpec(): OrbitSpec {
@@ -79,5 +85,25 @@ export function createHarmonicOrbit(spec: OrbitSpec = defaultSpec()): (timeSecon
     }
 
     return angles;
+  };
+}
+
+export function createRotationLoom(
+  orbit: (timeSeconds: number) => RotationAngles,
+  length = 240
+): (timeSeconds: number) => LoomSample[] {
+  const samples: LoomSample[] = [];
+  return (timeSeconds: number) => {
+    const angles = orbit(timeSeconds);
+    const energy = SIX_PLANE_KEYS.reduce((sum, plane) => sum + Math.abs(angles[plane]), 0);
+    samples.push({
+      time: timeSeconds,
+      energy,
+      angles: { ...angles }
+    });
+    if (samples.length > length) {
+      samples.shift();
+    }
+    return samples.slice();
   };
 }

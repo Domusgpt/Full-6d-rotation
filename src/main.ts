@@ -1,8 +1,12 @@
 import { HypercubeCore } from './core/hypercubeCore';
 import { ZERO_ROTATION, type RotationAngles, type RotationSnapshot } from './core/rotationUniforms';
 import { createHarmonicOrbit, SIX_PLANE_KEYS } from './core/sixPlaneOrbit';
-import { getGeometry, type GeometryId } from './pipeline/geometryCatalog';
+import { type GeometryId } from './pipeline/geometryCatalog';
 import { RotationBus } from './pipeline/rotationBus';
+import { GeometryController } from './pipeline/geometryController';
+import { DatasetExportService } from './pipeline/datasetExport';
+import { LocalPspStream } from './pipeline/pspStream';
+import { FocusDirector } from './pipeline/focusDirector';
 
 const canvas = document.getElementById('gl-canvas') as HTMLCanvasElement;
 const statusEl = document.getElementById('status') as HTMLParagraphElement;
@@ -20,8 +24,12 @@ const core = new HypercubeCore(canvas, {
   lineWidth: Number(lineWidthSlider.value)
 });
 
+const geometryController = new GeometryController(core);
 const rotationBus = new RotationBus();
 rotationBus.subscribe(snapshot => core.updateRotation(snapshot));
+const datasetExport = new DatasetExportService();
+const pspStream = new LocalPspStream();
+const focusDirector = new FocusDirector(geometryController, rotationBus, { fallbackGeometry: 'tesseract' });
 
 const rotationState: RotationSnapshot = {
   ...ZERO_ROTATION,
@@ -56,12 +64,23 @@ updateRotationLabels = createRotationControls(rotationControlsContainer, manualO
 
 pushRotationSnapshot(performance.now());
 
+function populateGeometryOptions() {
+  const geometries = geometryController.getAvailableGeometries();
+  geometrySelect.innerHTML = '';
+  for (const descriptor of geometries) {
+    const option = document.createElement('option');
+    option.value = descriptor.id;
+    option.textContent = descriptor.name;
+    geometrySelect.appendChild(option);
+  }
+}
+
 function setGeometry(id: GeometryId) {
-  const geometry = getGeometry(id);
-  core.setGeometry(geometry);
-  const vertexCount = (geometry.positions.length / 4).toFixed(0);
-  const edgeCount = (geometry.indices.length / 2).toFixed(0);
-  statusEl.textContent = `Geometry: ${id} · vertices ${vertexCount} · edges ${edgeCount}`;
+  geometryController.setActiveGeometry(id);
+  const descriptor = geometryController.getDescriptor(id);
+  if (!descriptor) return;
+  const { topology } = descriptor.data;
+  statusEl.textContent = `Geometry: ${descriptor.name} · V ${topology.vertices} · E ${topology.edges} · F ${topology.faces} · C ${topology.cells}`;
 }
 
 geometrySelect.addEventListener('change', (event) => {
@@ -79,9 +98,31 @@ lineWidthSlider.addEventListener('input', (event) => {
   core.setLineWidth(value);
 });
 
+populateGeometryOptions();
+geometrySelect.value = 'tesseract';
 setGeometry('tesseract');
 startSyntheticRotation(autoAngles, timestamp => pushRotationSnapshot(timestamp));
 core.start();
+
+setInterval(() => focusDirector.update(performance.now()), 1000);
+
+rotationBus.subscribe(snapshot => {
+  const pixels = new Uint8ClampedArray([0, 0, 0, 255]);
+  datasetExport.enqueue({
+    width: 1,
+    height: 1,
+    pixels,
+    metadata: {
+      timestamp: snapshot.timestamp,
+      rotationAngles: [snapshot.xy, snapshot.xz, snapshot.yz, snapshot.xw, snapshot.yw, snapshot.zw]
+    }
+  });
+});
+
+setInterval(async () => {
+  const frames = await datasetExport.flush();
+  frames.forEach(frame => pspStream.publish(frame));
+}, 2000);
 
 function createRotationControls(
   container: HTMLDivElement,
