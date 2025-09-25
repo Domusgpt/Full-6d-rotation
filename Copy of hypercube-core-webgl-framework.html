@@ -1,0 +1,1366 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>HypercubeCore WebGL Framework</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            background: linear-gradient(135deg, #0a0a1a 0%, #1a1a2f 50%, #2f1a1a 100%);
+            overflow: hidden;
+            font-family: 'SF Pro Display', -apple-system, BlinkMacSystemFont, sans-serif;
+            font-weight: 300;
+            color: #e0e8ff;
+        }
+
+        #glCanvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: radial-gradient(circle at center, rgba(20, 20, 40, 0.9), rgba(10, 10, 20, 1));
+        }
+
+        .framework-controls {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            background: rgba(16, 16, 32, 0.95);
+            backdrop-filter: blur(16px) saturate(1.4);
+            padding: 25px;
+            border: 1px solid rgba(144, 202, 249, 0.2);
+            border-radius: 12px;
+            color: #90caf9;
+            z-index: 1000;
+            width: 320px;
+            box-shadow: 0 8px 32px rgba(144, 202, 249, 0.1);
+            max-height: 90vh;
+            overflow-y: auto;
+        }
+
+        .framework-info {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            background: rgba(16, 16, 32, 0.95);
+            backdrop-filter: blur(16px) saturate(1.4);
+            padding: 20px;
+            border: 1px solid rgba(144, 202, 249, 0.2);
+            border-radius: 12px;
+            color: #90caf9;
+            z-index: 1000;
+            width: 300px;
+            box-shadow: 0 8px 32px rgba(144, 202, 249, 0.1);
+        }
+
+        .control-section {
+            margin-bottom: 20px;
+            padding-bottom: 15px;
+            border-bottom: 1px solid rgba(144, 202, 249, 0.1);
+        }
+
+        .control-section:last-child {
+            border-bottom: none;
+        }
+
+        .section-title {
+            font-size: 14px;
+            font-weight: 600;
+            color: #9c27b0;
+            margin-bottom: 12px;
+            letter-spacing: 0.5px;
+            text-transform: uppercase;
+        }
+
+        .control-group {
+            margin-bottom: 12px;
+        }
+
+        .control-label {
+            display: block;
+            font-size: 12px;
+            margin-bottom: 6px;
+            color: rgba(144, 202, 249, 0.8);
+        }
+
+        .control-input {
+            width: 100%;
+            height: 6px;
+            background: rgba(144, 202, 249, 0.2);
+            border-radius: 3px;
+            outline: none;
+            -webkit-appearance: none;
+            appearance: none;
+        }
+
+        .control-input::-webkit-slider-thumb {
+            appearance: none;
+            width: 16px;
+            height: 16px;
+            border-radius: 50%;
+            background: linear-gradient(45deg, #90caf9, #9c27b0);
+            cursor: pointer;
+            box-shadow: 0 2px 8px rgba(144, 202, 249, 0.3);
+        }
+
+        .control-select {
+            width: 100%;
+            background: rgba(16, 16, 32, 0.8);
+            border: 1px solid rgba(144, 202, 249, 0.3);
+            color: #90caf9;
+            padding: 6px 10px;
+            border-radius: 6px;
+            font-size: 12px;
+        }
+
+        .value-display {
+            color: #9c27b0;
+            font-weight: 500;
+            font-size: 12px;
+            float: right;
+        }
+
+        .framework-button {
+            background: linear-gradient(135deg, rgba(144, 202, 249, 0.1), rgba(156, 39, 176, 0.1));
+            border: 1px solid rgba(144, 202, 249, 0.3);
+            color: #90caf9;
+            padding: 8px 16px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 12px;
+            font-weight: 400;
+            letter-spacing: 0.5px;
+            margin: 4px 2px;
+            transition: all 0.3s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+            backdrop-filter: blur(8px);
+            width: calc(50% - 8px);
+            display: inline-block;
+            text-align: center;
+        }
+
+        .framework-button:hover {
+            background: linear-gradient(135deg, rgba(144, 202, 249, 0.2), rgba(156, 39, 176, 0.2));
+            transform: translateY(-1px);
+            box-shadow: 0 4px 16px rgba(144, 202, 249, 0.2);
+        }
+
+        .framework-button.active {
+            background: linear-gradient(135deg, rgba(156, 39, 176, 0.3), rgba(144, 202, 249, 0.3));
+            border-color: #9c27b0;
+        }
+
+        .status-indicator {
+            display: inline-block;
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            margin-right: 8px;
+            box-shadow: 0 0 8px currentColor;
+        }
+
+        .status-running { color: #4caf50; }
+        .status-stopped { color: #f44336; }
+        .status-compiling { color: #ff9800; }
+
+        .info-row {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 8px;
+            font-size: 12px;
+        }
+
+        .info-label {
+            color: rgba(144, 202, 249, 0.7);
+        }
+
+        .info-value {
+            color: #9c27b0;
+            font-weight: 500;
+        }
+
+        .performance-monitor {
+            position: absolute;
+            bottom: 20px;
+            right: 20px;
+            background: rgba(16, 16, 32, 0.9);
+            backdrop-filter: blur(12px);
+            padding: 15px;
+            border: 1px solid rgba(144, 202, 249, 0.2);
+            border-radius: 8px;
+            color: #90caf9;
+            font-size: 11px;
+            min-width: 200px;
+        }
+
+        .fps-display {
+            font-size: 16px;
+            font-weight: 600;
+            color: #4caf50;
+            text-align: center;
+            margin-bottom: 8px;
+        }
+
+        .preset-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 8px;
+            margin-top: 10px;
+        }
+
+        h3 {
+            margin: 0 0 15px 0;
+            color: #9c27b0;
+            font-size: 16px;
+            font-weight: 500;
+            text-align: center;
+        }
+        .controls-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 15px;
+        }
+        .controls-toggle {
+            background: none;
+            border: 1px solid currentColor;
+            color: currentColor;
+            padding: 3px 8px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 10px;
+            transition: all 0.2s ease;
+        }
+        .controls-toggle:hover {
+            background: rgba(255, 255, 255, 0.1);
+        }
+        .controls-content {
+            transition: all 0.3s ease-out;
+            overflow: hidden;
+            max-height: 1000px; /* Sufficiently large value */
+        }
+        .controls.collapsed .controls-content {
+            max-height: 0;
+            opacity: 0;
+            padding-top: 0;
+            padding-bottom: 0;
+        }
+        .controls.collapsed .controls-toggle {
+            transform: rotate(180deg);
+        }
+        .controls.collapsed {
+            padding: 10px;
+            height: auto;
+        }
+        .gallery-link {
+            position: fixed;
+            top: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(156, 39, 176, 0.9);
+            border: 1px solid #9c27b0;
+            color: #ffffff;
+            padding: 12px 24px;
+            border-radius: 25px;
+            text-decoration: none;
+            font-size: 14px;
+            font-weight: 600;
+            z-index: 2000;
+            backdrop-filter: blur(10px);
+            box-shadow: 0 4px 20px rgba(156, 39, 176, 0.4);
+            transition: all 0.3s ease;
+        }
+        .gallery-link:hover {
+            background: rgba(156, 39, 176, 1.0);
+            transform: translateX(-50%) translateY(-2px);
+            box-shadow: 0 8px 30px rgba(156, 39, 176, 0.6);
+        }
+    </style>
+</head>
+<body>
+    <canvas id="glCanvas"></canvas>
+    
+    <!-- Navigation to main gallery -->
+    <a href="../gallery-mobile-enhanced.html" class="gallery-link">← Back to Visual Codex Gallery</a>
+    
+    <div class="framework-info controls" id="framework-info-panel">
+        <div class="controls-header">
+            <h3>HypercubeCore Framework</h3>
+            <button class="controls-toggle" onclick="togglePanel('framework-info-panel')">▲</button>
+        </div>
+        <div class="controls-content">
+            <div class="info-row">
+                <span class="info-label">Status:</span>
+                <span class="info-value">
+                    <span class="status-indicator status-running" id="statusIndicator"></span>
+                    <span id="statusText">Running</span>
+                </span>
+            </div>
+            <div class="info-row">
+                <span class="info-label">Geometry:</span>
+                <span class="info-value" id="currentGeometry">Hypercube</span>
+            </div>
+            <div class="info-row">
+                <span class="info-label">Projection:</span>
+                <span class="info-value" id="currentProjection">Perspective</span>
+            </div>
+            <div class="info-row">
+                <span class="info-label">Shader Program:</span>
+                <span class="info-value" id="currentShader">maleficarumViz</span>
+            </div>
+            <div class="info-row">
+                <span class="info-label">WebGL Version:</span>
+                <span class="info-value" id="webglVersion">1.0</span>
+            </div>
+            <div class="info-row">
+                <span class="info-label">Uniforms Dirty:</span>
+                <span class="info-value" id="dirtyUniforms">0</span>
+            </div>
+        </div>
+    </div>
+
+    <div class="framework-controls controls" id="framework-controls-panel">
+        <div class="controls-header">
+            <h3 style="margin: 0 0 15px 0; color: #9c27b0;">CONTROLS</h3>
+            <button class="controls-toggle" onclick="togglePanel('framework-controls-panel')">▲</button>
+        </div>
+        <div class="controls-content">
+            <div class="control-section">
+                <div class="section-title">Core Parameters</div>
+                <div class="control-group">
+                    <label class="control-label">Dimension: <span class="value-display" id="dimensionValue">4.0</span></label>
+                    <input type="range" class="control-input" id="dimension" min="3.0" max="5.0" step="0.1" value="4.0">
+                </div>
+                <div class="control-group">
+                    <label class="control-label">Morph Factor: <span class="value-display" id="morphFactorValue">0.5</span></label>
+                    <input type="range" class="control-input" id="morphFactor" min="0.0" max="1.0" step="0.05" value="0.5">
+                </div>
+                <div class="control-group">
+                    <label class="control-label">Rotation Speed: <span class="value-display" id="rotationSpeedValue">0.2</span></label>
+                    <input type="range" class="control-input" id="rotationSpeed" min="0.0" max="2.0" step="0.1" value="0.2">
+                </div>
+                <div class="control-group">
+                    <label class="control-label">Grid Density: <span class="value-display" id="gridDensityValue">8.0</span></label>
+                    <input type="range" class="control-input" id="gridDensity" min="1.0" max="20.0" step="0.5" value="8.0">
+                </div>
+            </div>
+
+            <div class="control-section">
+                <div class="section-title">Geometry & Projection</div>
+                <div class="control-group">
+                    <label class="control-label">Geometry Type:</label>
+                    <select class="control-select" id="geometryType">
+                        <option value="hypercube">Hypercube</option>
+                        <option value="hypersphere">Hypersphere</option>
+                        <option value="hypertetrahedron">Hypertetrahedron</option>
+                    </select>
+                </div>
+                <div class="control-group">
+                    <label class="control-label">Projection Method:</label>
+                    <select class="control-select" id="projectionMethod">
+                        <option value="perspective">Perspective</option>
+                        <option value="orthographic">Orthographic</option>
+                        <option value="stereographic">Stereographic</option>
+                    </select>
+                </div>
+            </div>
+
+            <div class="control-section">
+                <div class="section-title">Visual Properties</div>
+                <div class="control-group">
+                    <label class="control-label">Thickness: <span class="value-display" id="thicknessValue">0.03</span></label>
+                    <input type="range" class="control-input" id="thickness" min="0.005" max="0.1" step="0.005" value="0.03">
+                </div>
+                <div class="control-group">
+                    <label class="control-label">Pattern Intensity: <span class="value-display" id="patternIntensityValue">1.0</span></label>
+                    <input type="range" class="control-input" id="patternIntensity" min="0.0" max="2.0" step="0.1" value="1.0">
+                </div>
+            </div>
+
+            <div class="control-section">
+                <div class="section-title">Effects</div>
+                <div class="control-group">
+                    <label class="control-label">Glitch Intensity: <span class="value-display" id="glitchIntensityValue">0.0</span></label>
+                    <input type="range" class="control-input" id="glitchIntensity" min="0.0" max="1.0" step="0.05" value="0.0">
+                </div>
+                <div class="control-group">
+                    <label class="control-label">Color Shift: <span class="value-display" id="colorShiftValue">0.0</span></label>
+                    <input type="range" class="control-input" id="colorShift" min="-1.0" max="1.0" step="0.05" value="0.0">
+                </div>
+                <div class="control-group">
+                    <label class="control-label">Universe Modifier: <span class="value-display" id="universeModifierValue">1.0</span></label>
+                    <input type="range" class="control-input" id="universeModifier" min="0.1" max="3.0" step="0.1" value="1.0">
+                </div>
+            </div>
+
+            <div class="control-section">
+                <div class="section-title">Audio Levels (Simulated)</div>
+                <div class="control-group">
+                    <label class="control-label">Bass: <span class="value-display" id="audioBassValue">0.0</span></label>
+                    <input type="range" class="control-input" id="audioBass" min="0.0" max="1.0" step="0.05" value="0.0">
+                </div>
+                <div class="control-group">
+                    <label class="control-label">Mid: <span class="value-display" id="audioMidValue">0.0</span></label>
+                    <input type="range" class="control-input" id="audioMid" min="0.0" max="1.0" step="0.05" value="0.0">
+                </div>
+                <div class="control-group">
+                    <label class="control-label">High: <span class="value-display" id="audioHighValue">0.0</span></label>
+                    <input type="range" class="control-input" id="audioHigh" min="0.0" max="1.0" step="0.05" value="0.0">
+                </div>
+            </div>
+
+            <div class="control-section">
+                <div class="section-title">Framework Control</div>
+                <button class="framework-button" onclick="toggleRendering()" id="toggleBtn">Stop</button>
+                <button class="framework-button" onclick="resetParameters()">Reset</button>
+                <button class="framework-button" onclick="randomizeParameters()">Randomize</button>
+                <button class="framework-button" onclick="exportState()">Export</button>
+                
+                <div class="preset-grid">
+                    <button class="framework-button" onclick="loadPreset('classic')">Classic</button>
+                    <button class="framework-button" onclick="loadPreset('intense')">Intense</button>
+                    <button class="framework-button" onclick="loadPreset('minimal')">Minimal</button>
+                    <button class="framework-button" onclick="loadPreset('chaos')">Chaos</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="performance-monitor controls" id="performance-monitor-panel">
+        <div class="controls-header">
+            <h3 style="margin: 0 0 15px 0; color: #90caf9;">PERFORMANCE</h3>
+            <button class="controls-toggle" onclick="togglePanel('performance-monitor-panel')">▲</button>
+        </div>
+        <div class="controls-content">
+            <div class="fps-display" id="fpsDisplay">60 FPS</div>
+            <div>Frame Time: <span id="frameTime">16.7ms</span></div>
+            <div>Render Calls: <span id="renderCalls">1</span></div>
+            <div>Memory Usage: <span id="memoryUsage">~50MB</span></div>
+        </div>
+    </div>
+
+    <script>
+        // Base classes for the framework
+        class BaseGeometry {
+            getShaderCode() {
+                throw new Error('getShaderCode() must be implemented');
+            }
+        }
+
+        class HypercubeGeometry extends BaseGeometry {
+            getShaderCode() {
+                return `
+                    float calculateLattice(vec3 p) {
+                        float dynamicGridDensity = max(0.1, u_gridDensity * (1.0 + u_audioBass * 0.7));
+                        float dynamicLineThickness = max(0.002, u_lineThickness * (1.0 - u_audioMid * 0.6));
+
+                        vec3 p_grid3D = fract(p * dynamicGridDensity * 0.5 + u_time * 0.01);
+                        vec3 dist3D = abs(p_grid3D - 0.5);
+                        float box3D = max(dist3D.x, max(dist3D.y, dist3D.z));
+                        float lattice3D = smoothstep(0.5, 0.5 - dynamicLineThickness, box3D);
+
+                        float finalLattice = lattice3D;
+                        float dim_factor = smoothstep(3.0, 4.5, u_dimension);
+
+                        if (dim_factor > 0.01) {
+                            float w_coord = sin(p.x*1.4 - p.y*0.7 + p.z*1.5 + u_time * 0.25)
+                                          * cos(length(p) * 1.1 - u_time * 0.35 + u_audioMid * 2.5)
+                                          * dim_factor * (0.4 + u_morphFactor * 0.6 + u_audioHigh * 0.6);
+
+                            vec4 p4d = vec4(p, w_coord);
+                            float baseSpeed = u_rotationSpeed * 1.0;
+                            float time_rot1 = u_time * 0.33 * baseSpeed + u_audioHigh * 0.25 + u_morphFactor * 0.45;
+                            float time_rot2 = u_time * 0.28 * baseSpeed - u_audioMid * 0.28;
+                            float time_rot3 = u_time * 0.25 * baseSpeed + u_audioBass * 0.35;
+                            p4d = rotXW(time_rot1) * rotYZ(time_rot2 * 1.1) * rotZW(time_rot3 * 0.9) * p4d;
+                            p4d = rotYW(u_time * -0.22 * baseSpeed + u_morphFactor * 0.3) * p4d;
+
+                            vec3 projectedP = project4Dto3D(p4d);
+                            vec3 p_grid4D_proj = fract(projectedP * dynamicGridDensity * 0.5 + u_time * 0.015);
+                            vec3 dist4D_proj = abs(p_grid4D_proj - 0.5);
+                            float box4D_proj = max(dist4D_proj.x, max(dist4D_proj.y, dist4D_proj.z));
+                            float lattice4D_proj = smoothstep(0.5, 0.5 - dynamicLineThickness, box4D_proj);
+                            finalLattice = mix(lattice3D, lattice4D_proj, smoothstep(0.0, 1.0, u_morphFactor));
+                        }
+                        return pow(finalLattice, 1.0 / max(0.1, u_universeModifier));
+                    }
+                `;
+            }
+        }
+
+        class HypersphereGeometry extends BaseGeometry {
+            getShaderCode() {
+                return `
+                    float calculateLattice(vec3 p) {
+                        float radius3D = length(p);
+                        float densityFactor = max(0.1, u_gridDensity * 0.7 * (1.0 + u_audioBass * 0.5));
+                        float dynamicShellWidth = max(0.005, u_shellWidth * (1.0 + u_audioMid * 1.5));
+                        float phase = radius3D * densityFactor * 6.28318 - u_time * u_rotationSpeed * 0.8 + u_audioHigh * 3.0;
+                        float shells3D = 0.5 + 0.5 * sin(phase);
+                        shells3D = smoothstep(1.0 - dynamicShellWidth, 1.0, shells3D);
+
+                       float finalLattice = shells3D;
+                       float dim_factor = smoothstep(3.0, 4.5, u_dimension);
+
+                       if (dim_factor > 0.01) {
+                            float w_coord = cos(radius3D * 2.5 - u_time * 0.55)
+                                          * sin(p.x*1.0 + p.y*1.3 - p.z*0.7 + u_time*0.2)
+                                          * dim_factor * (0.5 + u_morphFactor * 0.5 + u_audioMid * 0.5);
+
+                           vec4 p4d = vec4(p, w_coord);
+                            float baseSpeed = u_rotationSpeed * 0.85;
+                            float time_rot1 = u_time * 0.38 * baseSpeed + u_audioHigh * 0.2;
+                            float time_rot2 = u_time * 0.31 * baseSpeed + u_morphFactor * 0.6;
+                            float time_rot3 = u_time * -0.24 * baseSpeed + u_audioBass * 0.25;
+                            p4d = rotXW(time_rot1 * 1.05) * rotYZ(time_rot2) * rotYW(time_rot3 * 0.95) * p4d;
+
+                            vec3 projectedP = project4Dto3D(p4d);
+                            float radius4D_proj = length(projectedP);
+                            float phase4D = radius4D_proj * densityFactor * 6.28318 - u_time * u_rotationSpeed * 0.8 + u_audioHigh * 3.0;
+                            float shells4D_proj = 0.5 + 0.5 * sin(phase4D);
+                            shells4D_proj = smoothstep(1.0 - dynamicShellWidth, 1.0, shells4D_proj);
+                            finalLattice = mix(shells3D, shells4D_proj, smoothstep(0.0, 1.0, u_morphFactor));
+                        }
+                       return pow(max(0.0, finalLattice), max(0.1, u_universeModifier));
+                   }
+                `;
+            }
+        }
+
+        class HypertetrahedronGeometry extends BaseGeometry {
+            getShaderCode() {
+                return `
+                    float calculateLattice(vec3 p) {
+                        float density = max(0.1, u_gridDensity * 0.65 * (1.0 + u_audioBass * 0.4));
+                        float dynamicThickness = max(0.003, u_tetraThickness * (1.0 - u_audioMid * 0.7));
+
+                        vec3 c1=normalize(vec3(1,1,1)), c2=normalize(vec3(-1,-1,1)), c3=normalize(vec3(-1,1,-1)), c4=normalize(vec3(1,-1,-1));
+                        vec3 p_mod3D = fract(p * density * 0.5 + 0.5 + u_time * 0.005) - 0.5;
+                        float d1=dot(p_mod3D, c1), d2=dot(p_mod3D, c2), d3=dot(p_mod3D, c3), d4=dot(p_mod3D, c4);
+                        float minDistToPlane3D = min(min(abs(d1), abs(d2)), min(abs(d3), abs(d4)));
+                        float lattice3D = 1.0 - smoothstep(0.0, dynamicThickness, minDistToPlane3D);
+
+                        float finalLattice = lattice3D;
+                        float dim_factor = smoothstep(3.0, 4.5, u_dimension);
+
+                        if (dim_factor > 0.01) {
+                            float w_coord = cos(p.x*1.8 - p.y*1.5 + p.z*1.2 + u_time*0.24) * sin(length(p)*1.4 + u_time*0.18 - u_audioMid*2.0) * dim_factor * (0.45 + u_morphFactor*0.55 + u_audioHigh*0.4);
+                            vec4 p4d = vec4(p, w_coord);
+                            float baseSpeed = u_rotationSpeed * 1.15;
+                            float time_rot1 = u_time*0.28*baseSpeed + u_audioHigh*0.25; 
+                            float time_rot2 = u_time*0.36*baseSpeed - u_audioBass*0.2 + u_morphFactor*0.4; 
+                            float time_rot3 = u_time*0.32*baseSpeed + u_audioMid*0.15;
+                            p4d = rotXW(time_rot1*0.95) * rotYW(time_rot2*1.05) * rotZW(time_rot3) * p4d;
+                            vec3 projectedP = project4Dto3D(p4d);
+
+                            vec3 p_mod4D_proj = fract(projectedP * density * 0.5 + 0.5 + u_time * 0.008) - 0.5;
+                            float dp1=dot(p_mod4D_proj,c1), dp2=dot(p_mod4D_proj,c2), dp3=dot(p_mod4D_proj,c3), dp4=dot(p_mod4D_proj,c4);
+                            float minDistToPlane4D = min(min(abs(dp1), abs(dp2)), min(abs(dp3), abs(dp4)));
+                            float lattice4D_proj = 1.0 - smoothstep(0.0, dynamicThickness, minDistToPlane4D);
+                           finalLattice = mix(lattice3D, lattice4D_proj, smoothstep(0.0, 1.0, u_morphFactor));
+                        }
+                        return pow(max(0.0, finalLattice), max(0.1, u_universeModifier));
+                    }
+                `;
+            }
+        }
+
+        class BaseProjection {
+            getShaderCode() {
+                throw new Error('getShaderCode() must be implemented');
+            }
+        }
+
+        class PerspectiveProjection extends BaseProjection {
+            getShaderCode() {
+                return `
+                    vec3 project4Dto3D(vec4 p) {
+                        float baseDistance = 2.50;
+                        float dynamicDistance = max(0.2, baseDistance * (1.0 + u_morphFactor * 0.4 - u_audioMid * 0.35));
+                        float denominator = dynamicDistance + p.w;
+                        float w_factor = dynamicDistance / max(0.1, denominator);
+                        return p.xyz * w_factor;
+                    }
+                `;
+            }
+        }
+
+        class OrthographicProjection extends BaseProjection {
+            getShaderCode() {
+                return `
+                    vec3 project4Dto3D(vec4 p) {
+                        vec3 orthoP = p.xyz;
+                        float basePerspectiveDistance = 2.5;
+                        float dynamicPerspectiveDistance = max(0.2, basePerspectiveDistance * (1.0 - u_audioMid * 0.4));
+                        float perspDenominator = dynamicPerspectiveDistance + p.w;
+                        float persp_w_factor = dynamicPerspectiveDistance / max(0.1, perspDenominator);
+                        vec3 perspP = p.xyz * persp_w_factor;
+                        float morphT = smoothstep(0.0, 1.0, u_morphFactor);
+                        return mix(orthoP, perspP, morphT);
+                    }
+                `;
+            }
+        }
+
+        class StereographicProjection extends BaseProjection {
+            getShaderCode() {
+                return `
+                    vec3 project4Dto3D(vec4 p) {
+                        float basePoleW = -1.50;
+                        float dynamicPoleW = sign(basePoleW) * max(0.1, abs(basePoleW + u_audioHigh * 0.4 * sign(basePoleW)));
+                        float denominator = p.w - dynamicPoleW;
+                        vec3 projectedP;
+                        float epsilon = 0.001;
+                        if (abs(denominator) < epsilon) {
+                            projectedP = normalize(p.xyz + vec3(epsilon)) * 1000.0;
+                        } else {
+                            float scale = (-dynamicPoleW) / denominator;
+                            projectedP = p.xyz * scale;
+                        }
+                        float morphT = smoothstep(0.0, 1.0, u_morphFactor * 0.8);
+                        vec3 orthoP = p.xyz;
+                        return mix(projectedP, orthoP, morphT);
+                    }
+                `;
+            }
+        }
+
+        // Framework managers
+        class GeometryManager {
+            constructor() {
+                this.geometries = {
+                    'hypercube': new HypercubeGeometry(),
+                    'hypersphere': new HypersphereGeometry(),
+                    'hypertetrahedron': new HypertetrahedronGeometry()
+                };
+            }
+
+            getGeometry(name) {
+                return this.geometries[name] || this.geometries['hypercube'];
+            }
+        }
+
+        class ProjectionManager {
+            constructor() {
+                this.projections = {
+                    'perspective': new PerspectiveProjection(),
+                    'orthographic': new OrthographicProjection(),
+                    'stereographic': new StereographicProjection()
+                };
+            }
+
+            getProjection(name) {
+                return this.projections[name] || this.projections['perspective'];
+            }
+        }
+
+        class ShaderManager {
+            constructor(gl, geometryManager, projectionManager) {
+                this.gl = gl;
+                this.geometryManager = geometryManager;
+                this.projectionManager = projectionManager;
+                this.programs = {};
+                this.currentProgramName = null;
+                this.uniformLocations = {};
+                this.attributeLocations = {};
+            }
+
+            createDynamicProgram(programName, geometryType, projectionMethod) {
+                const vertexShaderSource = `
+                    attribute vec2 a_position;
+                    varying vec2 v_uv;
+                    void main() {
+                        v_uv = a_position * 0.5 + 0.5;
+                        gl_Position = vec4(a_position, 0.0, 1.0);
+                    }
+                `;
+
+                const geometry = this.geometryManager.getGeometry(geometryType);
+                const projection = this.projectionManager.getProjection(projectionMethod);
+
+                const fragmentShaderSource = `
+                    precision highp float;
+                    uniform vec2 u_resolution; uniform float u_time;
+                    uniform float u_dimension; uniform float u_morphFactor; uniform float u_rotationSpeed;
+                    uniform float u_universeModifier; uniform float u_patternIntensity; uniform float u_gridDensity;
+                    uniform float u_lineThickness; uniform float u_shellWidth; uniform float u_tetraThickness;
+                    uniform float u_audioBass; uniform float u_audioMid; uniform float u_audioHigh;
+                    uniform float u_glitchIntensity; uniform float u_colorShift;
+                    uniform vec3 u_primaryColor; uniform vec3 u_secondaryColor; uniform vec3 u_backgroundColor;
+                    varying vec2 v_uv;
+
+                    mat4 rotXW(float a){float c=cos(a),s=sin(a);return mat4(c,0,0,-s, 0,1,0,0, 0,0,1,0, s,0,0,c);}
+                    mat4 rotYW(float a){float c=cos(a),s=sin(a);return mat4(1,0,0,0, 0,c,0,-s, 0,0,1,0, 0,s,0,c);}
+                    mat4 rotZW(float a){float c=cos(a),s=sin(a);return mat4(1,0,0,0, 0,1,0,0, 0,0,c,-s, 0,0,s,c);}
+                    mat4 rotXY(float a){float c=cos(a),s=sin(a);return mat4(c,-s,0,0, s,c,0,0, 0,0,1,0, 0,0,0,1);}
+                    mat4 rotYZ(float a){float c=cos(a),s=sin(a);return mat4(1,0,0,0, 0,c,-s,0, 0,s,c,0, 0,0,0,1);}
+                    mat4 rotXZ(float a){float c=cos(a),s=sin(a);return mat4(c,0,-s,0, 0,1,0,0, s,0,c,0, 0,0,0,1);}
+
+                    vec3 rgb2hsv(vec3 c){vec4 K=vec4(0.,-1./3.,2./3.,-1.);vec4 p=mix(vec4(c.bg,K.wz),vec4(c.gb,K.xy),step(c.b,c.g));vec4 q=mix(vec4(p.xyw,c.r),vec4(c.r,p.yzx),step(p.x,c.r));float d=q.x-min(q.w,q.y);float e=1e-10;return vec3(abs(q.z+(q.w-q.y)/(6.*d+e)),d/(q.x+e),q.x);}
+                    vec3 hsv2rgb(vec3 c){vec4 K=vec4(1.,2./3.,1./3.,3.);vec3 p=abs(fract(c.xxx+K.xyz)*6.-K.www);return c.z*mix(K.xxx,clamp(p-K.xxx,0.,1.),c.y);}
+
+                    ${projection.getShaderCode()}
+                    ${geometry.getShaderCode()}
+
+                    void main() {
+                        vec2 aspect = vec2(u_resolution.x / u_resolution.y, 1.0);
+                        vec2 uv = (v_uv * 2.0 - 1.0) * aspect;
+                        vec3 rayOrigin = vec3(0.0, 0.0, -2.5);
+                        vec3 rayDirection = normalize(vec3(uv, 1.0));
+                        float camRotY = u_time * 0.05 * u_rotationSpeed + u_audioMid * 0.1;
+                        float camRotX = sin(u_time * 0.03 * u_rotationSpeed) * 0.15 + u_audioHigh * 0.1;
+                        mat4 camMat = rotXY(camRotX) * rotYZ(camRotY);
+                        rayDirection = (camMat * vec4(rayDirection, 0.0)).xyz;
+                        vec3 p = rayDirection * 1.5;
+                        float latticeValue = calculateLattice(p);
+                        vec3 color = mix(u_backgroundColor, u_primaryColor, latticeValue);
+                        color = mix(color, u_secondaryColor, smoothstep(0.2, 0.7, u_audioMid) * latticeValue * 0.6);
+                        if (abs(u_colorShift) > 0.01) {
+                            vec3 hsv = rgb2hsv(color);
+                            hsv.x = fract(hsv.x + u_colorShift * 0.5 + u_audioHigh * 0.1);
+                            color = hsv2rgb(hsv);
+                        }
+                        color *= (0.8 + u_patternIntensity * 0.7);
+                        if (u_glitchIntensity > 0.001) {
+                            float glitch = u_glitchIntensity * (0.5 + 0.5 * sin(u_time * 8.0 + p.y * 10.0));
+                            vec2 offsetR = vec2(cos(u_time*25.), sin(u_time*18.+p.x*5.)) * glitch * 0.2 * aspect;
+                            vec2 offsetB = vec2(sin(u_time*19.+p.y*6.), cos(u_time*28.)) * glitch * 0.15 * aspect;
+                            vec3 pR = normalize(vec3(uv + offsetR/aspect, 1.0));
+                            pR = (camMat*vec4(pR,0.0)).xyz * 1.5;
+                            vec3 pB = normalize(vec3(uv + offsetB/aspect, 1.0));
+                            pB = (camMat*vec4(pB,0.0)).xyz * 1.5;
+                            float latticeR = calculateLattice(pR);
+                            float latticeB = calculateLattice(pB);
+                            vec3 colorR = mix(u_backgroundColor, u_primaryColor, latticeR);
+                            colorR = mix(colorR, u_secondaryColor, smoothstep(0.2, 0.7, u_audioMid) * latticeR * 0.6);
+                            vec3 colorB = mix(u_backgroundColor, u_primaryColor, latticeB);
+                            colorB = mix(colorB, u_secondaryColor, smoothstep(0.2, 0.7, u_audioMid) * latticeB * 0.6);
+                            if (abs(u_colorShift) > 0.01) {
+                                vec3 hsvR=rgb2hsv(colorR);
+                                hsvR.x=fract(hsvR.x+u_colorShift*0.5+u_audioHigh*0.1);
+                                colorR=hsv2rgb(hsvR);
+                                vec3 hsvB=rgb2hsv(colorB);
+                                hsvB.x=fract(hsvB.x+u_colorShift*0.5+u_audioHigh*0.1);
+                                colorB=hsv2rgb(hsvB);
+                            }
+                            color = vec3(colorR.r, color.g, colorB.b);
+                            color *= (0.8 + u_patternIntensity * 0.7);
+                        }
+                        color = pow(clamp(color, 0.0, 1.5), vec3(0.9));
+                        gl_FragColor = vec4(color, 1.0);
+                    }
+                `;
+
+                const vertexShader = this.compileShader(vertexShaderSource, this.gl.VERTEX_SHADER);
+                const fragmentShader = this.compileShader(fragmentShaderSource, this.gl.FRAGMENT_SHADER);
+
+                if (!vertexShader || !fragmentShader) {
+                    return null;
+                }
+
+                const program = this.gl.createProgram();
+                this.gl.attachShader(program, vertexShader);
+                this.gl.attachShader(program, fragmentShader);
+                this.gl.linkProgram(program);
+
+                if (!this.gl.getProgramParameter(program, this.gl.LINK_STATUS)) {
+                    console.error('Program link error:', this.gl.getProgramInfoLog(program));
+                    return null;
+                }
+
+                this.programs[programName] = program;
+                this.uniformLocations[programName] = {};
+                this.attributeLocations[programName] = {};
+
+                return program;
+            }
+
+            compileShader(source, type) {
+                const shader = this.gl.createShader(type);
+                this.gl.shaderSource(shader, source);
+                this.gl.compileShader(shader);
+
+                if (!this.gl.getShaderParameter(shader, this.gl.COMPILE_STATUS)) {
+                    console.error('Shader compile error:', this.gl.getShaderInfoLog(shader));
+                    this.gl.deleteShader(shader);
+                    return null;
+                }
+
+                return shader;
+            }
+
+            useProgram(programName) {
+                const program = this.programs[programName];
+                if (program) {
+                    this.gl.useProgram(program);
+                    this.currentProgramName = programName;
+                    return true;
+                }
+                return false;
+            }
+
+            getUniformLocation(name) {
+                if (!this.currentProgramName) return null;
+                
+                const cache = this.uniformLocations[this.currentProgramName];
+                if (cache[name] !== undefined) {
+                    return cache[name];
+                }
+
+                const location = this.gl.getUniformLocation(this.programs[this.currentProgramName], name);
+                cache[name] = location;
+                return location;
+            }
+
+            getAttributeLocation(name) {
+                if (!this.currentProgramName) return null;
+                
+                const cache = this.attributeLocations[this.currentProgramName];
+                if (cache[name] !== undefined) {
+                    return cache[name];
+                }
+
+                const location = this.gl.getAttribLocation(this.programs[this.currentProgramName], name);
+                cache[name] = location;
+                return location;
+            }
+        }
+
+        // Main HypercubeCore class
+        class HypercubeCore {
+            constructor(canvas, options = {}) {
+                this.canvas = canvas;
+                this.gl = canvas.getContext('webgl') || canvas.getContext('experimental-webgl');
+                
+                if (!this.gl) {
+                    throw new Error('WebGL not supported');
+                }
+
+                this.geometryManager = new GeometryManager();
+                this.projectionManager = new ProjectionManager();
+                this.shaderManager = new ShaderManager(this.gl, this.geometryManager, this.projectionManager);
+
+                this.state = {
+                    isRendering: false,
+                    startTime: 0,
+                    time: 0,
+                    geometryType: 'hypercube',
+                    projectionMethod: 'perspective',
+                    shaderProgramName: 'maleficarumViz',
+                    dimension: 4.0,
+                    morphFactor: 0.5,
+                    rotationSpeed: 0.2,
+                    gridDensity: 8.0,
+                    lineThickness: 0.03,
+                    shellWidth: 0.025,
+                    tetraThickness: 0.035,
+                    patternIntensity: 1.0,
+                    glitchIntensity: 0.0,
+                    colorShift: 0.0,
+                    universeModifier: 1.0,
+                    audioBass: 0.0,
+                    audioMid: 0.0,
+                    audioHigh: 0.0,
+                    primaryColor: [1.0, 0.2, 0.8],
+                    secondaryColor: [0.2, 1.0, 1.0],
+                    backgroundColor: [0.05, 0.0, 0.2],
+                    dirtyUniforms: new Set()
+                };
+
+                this.setupWebGL();
+                this.createBuffers();
+                this.updateShader();
+
+                // Performance monitoring
+                this.frameCount = 0;
+                this.lastFpsTime = performance.now();
+                this.fps = 60;
+                this.lastFrameTime = 0;
+            }
+
+            setupWebGL() {
+                const gl = this.gl;
+                gl.viewport(0, 0, gl.canvas.width, gl.canvas.height);
+                gl.clearColor(0.05, 0.0, 0.2, 1.0);
+                gl.disable(gl.DEPTH_TEST);
+                gl.enable(gl.BLEND);
+                gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+            }
+
+            createBuffers() {
+                const gl = this.gl;
+                const positions = new Float32Array([-1, -1, 1, -1, -1, 1, 1, 1]);
+                this.quadBuffer = gl.createBuffer();
+                gl.bindBuffer(gl.ARRAY_BUFFER, this.quadBuffer);
+                gl.bufferData(gl.ARRAY_BUFFER, positions, gl.STATIC_DRAW);
+            }
+
+            updateShader() {
+                const program = this.shaderManager.createDynamicProgram(
+                    this.state.shaderProgramName,
+                    this.state.geometryType,
+                    this.state.projectionMethod
+                );
+
+                if (!program) {
+                    console.error('Failed to create shader program');
+                    return false;
+                }
+
+                this.shaderManager.useProgram(this.state.shaderProgramName);
+                this.aPositionLoc = this.shaderManager.getAttributeLocation('a_position');
+                
+                if (this.aPositionLoc !== null) {
+                    this.gl.enableVertexAttribArray(this.aPositionLoc);
+                }
+
+                this.markAllUniformsDirty();
+                return true;
+            }
+
+            markAllUniformsDirty() {
+                this.state.dirtyUniforms = new Set([
+                    'u_time', 'u_resolution', 'u_dimension', 'u_morphFactor', 'u_rotationSpeed',
+                    'u_gridDensity', 'u_lineThickness', 'u_shellWidth', 'u_tetraThickness',
+                    'u_patternIntensity', 'u_glitchIntensity', 'u_colorShift', 'u_universeModifier',
+                    'u_audioBass', 'u_audioMid', 'u_audioHigh',
+                    'u_primaryColor', 'u_secondaryColor', 'u_backgroundColor'
+                ]);
+            }
+
+            updateThickness(value) {
+                // Map thickness to appropriate geometry-specific parameter
+                const thicknessMapping = {
+                    'hypercube': 'lineThickness',
+                    'hypersphere': 'shellWidth',
+                    'hypertetrahedron': 'tetraThickness'
+                };
+                
+                const targetParam = thicknessMapping[this.state.geometryType];
+                if (targetParam) {
+                    this.updateParameters({ [targetParam]: value });
+                }
+            }
+
+            updateParameters(params) {
+                let shaderNeedsUpdate = false;
+
+                for (const [key, value] of Object.entries(params)) {
+                    if (this.state[key] !== value) {
+                        this.state[key] = value;
+                        
+                        if (key === 'geometryType' || key === 'projectionMethod') {
+                            shaderNeedsUpdate = true;
+                            // Update thickness slider when geometry changes
+                            this.updateThicknessSlider();
+                        } else {
+                            // Mark corresponding uniform as dirty
+                            const uniformMapping = {
+                                dimension: 'u_dimension',
+                                morphFactor: 'u_morphFactor',
+                                rotationSpeed: 'u_rotationSpeed',
+                                gridDensity: 'u_gridDensity',
+                                lineThickness: 'u_lineThickness',
+                                shellWidth: 'u_shellWidth',
+                                tetraThickness: 'u_tetraThickness',
+                                patternIntensity: 'u_patternIntensity',
+                                glitchIntensity: 'u_glitchIntensity',
+                                colorShift: 'u_colorShift',
+                                universeModifier: 'u_universeModifier',
+                                audioBass: 'u_audioBass',
+                                audioMid: 'u_audioMid',
+                                audioHigh: 'u_audioHigh'
+                            };
+
+                            if (uniformMapping[key]) {
+                                this.state.dirtyUniforms.add(uniformMapping[key]);
+                            }
+                        }
+                    }
+                }
+
+                if (shaderNeedsUpdate) {
+                    this.updateShader();
+                }
+            }
+
+            updateThicknessSlider() {
+                // Update thickness slider to show current geometry's thickness value
+                const thicknessMapping = {
+                    'hypercube': 'lineThickness',
+                    'hypersphere': 'shellWidth', 
+                    'hypertetrahedron': 'tetraThickness'
+                };
+                
+                const targetParam = thicknessMapping[this.state.geometryType];
+                if (targetParam) {
+                    const currentValue = this.state[targetParam];
+                    const slider = document.getElementById('thickness');
+                    const display = document.getElementById('thicknessValue');
+                    if (slider && display) {
+                        slider.value = currentValue;
+                        display.textContent = currentValue.toFixed(3);
+                    }
+                }
+            }
+
+            checkResize() {
+                const canvas = this.canvas;
+                const displayWidth = canvas.clientWidth;
+                const displayHeight = canvas.clientHeight;
+
+                if (canvas.width !== displayWidth || canvas.height !== displayHeight) {
+                    canvas.width = displayWidth;
+                    canvas.height = displayHeight;
+                    this.gl.viewport(0, 0, displayWidth, displayHeight);
+                    this.state.dirtyUniforms.add('u_resolution');
+                    return true;
+                }
+                return false;
+            }
+
+            setUniforms() {
+                const gl = this.gl;
+                const dirtyUniforms = this.state.dirtyUniforms;
+
+                dirtyUniforms.forEach(name => {
+                    const location = this.shaderManager.getUniformLocation(name);
+                    if (location !== null) {
+                        switch (name) {
+                            case 'u_time':
+                                gl.uniform1f(location, this.state.time);
+                                break;
+                            case 'u_resolution':
+                                gl.uniform2f(location, this.canvas.width, this.canvas.height);
+                                break;
+                            case 'u_dimension':
+                                gl.uniform1f(location, this.state.dimension);
+                                break;
+                            case 'u_morphFactor':
+                                gl.uniform1f(location, this.state.morphFactor);
+                                break;
+                            case 'u_rotationSpeed':
+                                gl.uniform1f(location, this.state.rotationSpeed);
+                                break;
+                            case 'u_gridDensity':
+                                gl.uniform1f(location, this.state.gridDensity);
+                                break;
+                            case 'u_lineThickness':
+                                gl.uniform1f(location, this.state.lineThickness);
+                                break;
+                            case 'u_shellWidth':
+                                gl.uniform1f(location, this.state.shellWidth);
+                                break;
+                            case 'u_tetraThickness':
+                                gl.uniform1f(location, this.state.tetraThickness);
+                                break;
+                            case 'u_patternIntensity':
+                                gl.uniform1f(location, this.state.patternIntensity);
+                                break;
+                            case 'u_glitchIntensity':
+                                gl.uniform1f(location, this.state.glitchIntensity);
+                                break;
+                            case 'u_colorShift':
+                                gl.uniform1f(location, this.state.colorShift);
+                                break;
+                            case 'u_universeModifier':
+                                gl.uniform1f(location, this.state.universeModifier);
+                                break;
+                            case 'u_audioBass':
+                                gl.uniform1f(location, this.state.audioBass);
+                                break;
+                            case 'u_audioMid':
+                                gl.uniform1f(location, this.state.audioMid);
+                                break;
+                            case 'u_audioHigh':
+                                gl.uniform1f(location, this.state.audioHigh);
+                                break;
+                            case 'u_primaryColor':
+                                gl.uniform3fv(location, this.state.primaryColor);
+                                break;
+                            case 'u_secondaryColor':
+                                gl.uniform3fv(location, this.state.secondaryColor);
+                                break;
+                            case 'u_backgroundColor':
+                                gl.uniform3fv(location, this.state.backgroundColor);
+                                break;
+                        }
+                    }
+                });
+
+                this.state.dirtyUniforms.clear();
+            }
+
+            render(timestamp) {
+                if (!this.state.isRendering) return;
+
+                const currentTime = performance.now();
+                const frameTime = currentTime - this.lastFrameTime;
+                this.lastFrameTime = currentTime;
+
+                if (!this.state.startTime) this.state.startTime = timestamp;
+                this.state.time = (timestamp - this.state.startTime) * 0.001;
+
+                this.state.dirtyUniforms.add('u_time');
+
+                this.checkResize();
+                this.setUniforms();
+
+                const gl = this.gl;
+                const bg = this.state.backgroundColor;
+                gl.clearColor(bg[0], bg[1], bg[2], 1.0);
+                gl.clear(gl.COLOR_BUFFER_BIT);
+
+                if (this.quadBuffer && this.aPositionLoc !== null) {
+                    gl.bindBuffer(gl.ARRAY_BUFFER, this.quadBuffer);
+                    gl.vertexAttribPointer(this.aPositionLoc, 2, gl.FLOAT, false, 0, 0);
+                    gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+                }
+
+                // Update performance metrics
+                this.frameCount++;
+                if (currentTime - this.lastFpsTime >= 1000) {
+                    this.fps = Math.round((this.frameCount * 1000) / (currentTime - this.lastFpsTime));
+                    this.frameCount = 0;
+                    this.lastFpsTime = currentTime;
+                    this.updatePerformanceDisplay(frameTime);
+                }
+
+                this.updateInfoDisplay();
+
+                requestAnimationFrame(this.render.bind(this));
+            }
+
+            updatePerformanceDisplay(frameTime) {
+                document.getElementById('fpsDisplay').textContent = `${this.fps} FPS`;
+                document.getElementById('frameTime').textContent = `${frameTime.toFixed(1)}ms`;
+                document.getElementById('renderCalls').textContent = '1';
+                document.getElementById('memoryUsage').textContent = '~' + Math.round(this.gl.drawingBufferWidth * this.gl.drawingBufferHeight * 4 / 1024 / 1024) + 'MB';
+            }
+
+            updateInfoDisplay() {
+                document.getElementById('currentGeometry').textContent = this.state.geometryType.charAt(0).toUpperCase() + this.state.geometryType.slice(1);
+                document.getElementById('currentProjection').textContent = this.state.projectionMethod.charAt(0).toUpperCase() + this.state.projectionMethod.slice(1);
+                document.getElementById('dirtyUniforms').textContent = this.state.dirtyUniforms.size;
+            }
+
+            start() {
+                if (this.state.isRendering) return;
+                this.state.isRendering = true;
+                this.state.startTime = 0;
+                document.getElementById('statusText').textContent = 'Running';
+                document.getElementById('statusIndicator').className = 'status-indicator status-running';
+                requestAnimationFrame(this.render.bind(this));
+            }
+
+            stop() {
+                this.state.isRendering = false;
+                document.getElementById('statusText').textContent = 'Stopped';
+                document.getElementById('statusIndicator').className = 'status-indicator status-stopped';
+            }
+        }
+
+        // Global framework instance
+        let hypercubeCore;
+
+        // Control functions
+        function setupControls() {
+            const controls = [
+                'dimension', 'morphFactor', 'rotationSpeed', 'gridDensity',
+                'thickness', 'patternIntensity',
+                'glitchIntensity', 'colorShift', 'universeModifier',
+                'audioBass', 'audioMid', 'audioHigh'
+            ];
+
+            controls.forEach(control => {
+                const slider = document.getElementById(control);
+                const display = document.getElementById(control + 'Value');
+                
+                slider.addEventListener('input', (e) => {
+                    const value = parseFloat(e.target.value);
+                    display.textContent = value.toFixed(control.includes('audio') ? 2 : 1);
+                    if (control === 'thickness') {
+                        hypercubeCore.updateThickness(value);
+                    } else {
+                        hypercubeCore.updateParameters({ [control]: value });
+                    }
+                });
+            });
+
+            // Geometry and projection selectors
+            document.getElementById('geometryType').addEventListener('change', (e) => {
+                hypercubeCore.updateParameters({ geometryType: e.target.value });
+            });
+
+            document.getElementById('projectionMethod').addEventListener('change', (e) => {
+                hypercubeCore.updateParameters({ projectionMethod: e.target.value });
+            });
+        }
+
+        function toggleRendering() {
+            const btn = document.getElementById('toggleBtn');
+            if (hypercubeCore.state.isRendering) {
+                hypercubeCore.stop();
+                btn.textContent = 'Start';
+            } else {
+                hypercubeCore.start();
+                btn.textContent = 'Stop';
+            }
+        }
+
+        function resetParameters() {
+            const defaultParams = {
+                dimension: 4.0,
+                morphFactor: 0.5,
+                rotationSpeed: 0.2,
+                gridDensity: 8.0,
+                lineThickness: 0.03,
+                shellWidth: 0.025,
+                tetraThickness: 0.035,
+                patternIntensity: 1.0,
+                glitchIntensity: 0.0,
+                colorShift: 0.0,
+                universeModifier: 1.0,
+                audioBass: 0.0,
+                audioMid: 0.0,
+                audioHigh: 0.0
+            };
+
+            hypercubeCore.updateParameters(defaultParams);
+            updateControlsFromState(defaultParams);
+        }
+
+        function randomizeParameters() {
+            const randomParams = {
+                dimension: 3.0 + Math.random() * 2.0,
+                morphFactor: Math.random(),
+                rotationSpeed: Math.random() * 1.5,
+                gridDensity: 2.0 + Math.random() * 15.0,
+                lineThickness: 0.01 + Math.random() * 0.08,
+                shellWidth: 0.01 + Math.random() * 0.08,
+                tetraThickness: 0.01 + Math.random() * 0.08,
+                patternIntensity: 0.5 + Math.random() * 1.5,
+                glitchIntensity: Math.random() * 0.7,
+                colorShift: (Math.random() - 0.5) * 1.5,
+                universeModifier: 0.5 + Math.random() * 2.0,
+                audioBass: Math.random() * 0.8,
+                audioMid: Math.random() * 0.8,
+                audioHigh: Math.random() * 0.8
+            };
+
+            hypercubeCore.updateParameters(randomParams);
+            updateControlsFromState(randomParams);
+        }
+
+        function loadPreset(presetName) {
+            let preset;
+            switch (presetName) {
+                case 'classic':
+                    preset = {
+                        dimension: 4.0, morphFactor: 0.5, rotationSpeed: 0.2, gridDensity: 8.0,
+                        lineThickness: 0.03, patternIntensity: 1.0, glitchIntensity: 0.0, colorShift: 0.0
+                    };
+                    break;
+                case 'intense':
+                    preset = {
+                        dimension: 4.5, morphFactor: 0.8, rotationSpeed: 1.2, gridDensity: 15.0,
+                        lineThickness: 0.02, patternIntensity: 1.8, glitchIntensity: 0.3, colorShift: 0.5
+                    };
+                    break;
+                case 'minimal':
+                    preset = {
+                        dimension: 3.2, morphFactor: 0.2, rotationSpeed: 0.1, gridDensity: 4.0,
+                        lineThickness: 0.06, patternIntensity: 0.6, glitchIntensity: 0.0, colorShift: 0.0
+                    };
+                    break;
+                case 'chaos':
+                    preset = {
+                        dimension: 4.8, morphFactor: 0.9, rotationSpeed: 1.8, gridDensity: 20.0,
+                        lineThickness: 0.01, patternIntensity: 2.0, glitchIntensity: 0.8, colorShift: -0.7
+                    };
+                    break;
+            }
+
+            if (preset) {
+                hypercubeCore.updateParameters(preset);
+                updateControlsFromState(preset);
+            }
+        }
+
+        function updateControlsFromState(params) {
+            Object.entries(params).forEach(([key, value]) => {
+                const slider = document.getElementById(key);
+                const display = document.getElementById(key + 'Value');
+                if (slider && display) {
+                    slider.value = value;
+                    display.textContent = value.toFixed(key.includes('audio') ? 2 : 1);
+                }
+            });
+        }
+
+        function exportState() {
+            const state = {
+                geometry: hypercubeCore.state.geometryType,
+                projection: hypercubeCore.state.projectionMethod,
+                parameters: {
+                    dimension: hypercubeCore.state.dimension,
+                    morphFactor: hypercubeCore.state.morphFactor,
+                    rotationSpeed: hypercubeCore.state.rotationSpeed,
+                    gridDensity: hypercubeCore.state.gridDensity,
+                    lineThickness: hypercubeCore.state.lineThickness,
+                    shellWidth: hypercubeCore.state.shellWidth,
+                    tetraThickness: hypercubeCore.state.tetraThickness,
+                    patternIntensity: hypercubeCore.state.patternIntensity,
+                    glitchIntensity: hypercubeCore.state.glitchIntensity,
+                    colorShift: hypercubeCore.state.colorShift,
+                    universeModifier: hypercubeCore.state.universeModifier,
+                    audioBass: hypercubeCore.state.audioBass,
+                    audioMid: hypercubeCore.state.audioMid,
+                    audioHigh: hypercubeCore.state.audioHigh
+                }
+            };
+
+            const jsonString = JSON.stringify(state, null, 2);
+            const blob = new Blob([jsonString], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'hypercube-state.json';
+            a.click();
+            URL.revokeObjectURL(url);
+        }
+
+        // Initialize framework
+        document.addEventListener('DOMContentLoaded', () => {
+            const canvas = document.getElementById('glCanvas');
+            
+            try {
+                hypercubeCore = new HypercubeCore(canvas);
+                setupControls();
+                hypercubeCore.start();
+                console.log('🔥 HypercubeCore WebGL Framework initialized successfully! v2.0');
+            } catch (error) {
+                console.error('Failed to initialize HypercubeCore:', error);
+                document.getElementById('statusText').textContent = 'Error';
+                document.getElementById('statusIndicator').className = 'status-indicator status-stopped';
+            }
+        });
+
+        function togglePanel(panelId) {
+            const panel = document.getElementById(panelId);
+            panel.classList.toggle('collapsed');
+        }
+
+        // Ensure panels are expanded by default on load
+        document.addEventListener('DOMContentLoaded', () => {
+            document.querySelectorAll('.controls').forEach(panel => {
+                panel.classList.remove('collapsed');
+            });
+        });
+    </script>
+    
+    
+</body>
+</html>

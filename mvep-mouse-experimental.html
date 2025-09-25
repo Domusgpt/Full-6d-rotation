@@ -1,0 +1,753 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MVEP Mouse Experimental - Original 3D Ray + Mouse Control</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            background: #000;
+            overflow: hidden;
+            font-family: 'Courier New', monospace;
+            height: 100vh;
+            touch-action: none;
+            overscroll-behavior: none;
+            cursor: crosshair;
+        }
+        
+        .infinite-scroll-content {
+            height: 100vh;
+            background: linear-gradient(0deg, 
+                rgba(0,20,40,0.3) 0%, 
+                rgba(20,0,40,0.2) 33%, 
+                rgba(40,20,0,0.2) 66%, 
+                rgba(0,40,20,0.3) 100%);
+        }
+        
+        .controls-indicator {
+            position: fixed;
+            bottom: 20px;
+            left: 20px;
+            background: rgba(0,0,0,0.8);
+            padding: 15px;
+            border: 1px solid #00ffff;
+            color: #00ffff;
+            z-index: 100;
+            font-size: 11px;
+            max-width: 350px;
+        }
+        
+        .live-values {
+            position: fixed;
+            top: 20px;
+            left: 20px;
+            background: rgba(0,0,0,0.8);
+            padding: 15px;
+            border: 1px solid #ff00ff;
+            color: #ff00ff;
+            z-index: 100;
+            font-size: 11px;
+            font-family: 'Courier New', monospace;
+        }
+        
+        #canvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+        }
+        .controls {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            background: rgba(0,0,0,0.9);
+            padding: 15px;
+            border: 1px solid #00ffff;
+            color: #00ffff;
+            z-index: 9999;
+            width: 200px;
+            backdrop-filter: blur(10px);
+            pointer-events: auto;
+            touch-action: manipulation;
+        }
+        .control-group {
+            margin-bottom: 10px;
+        }
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-size: 12px;
+        }
+        .audio-btn {
+            background: rgba(0,255,255,0.2);
+            border: 1px solid #00ffff;
+            color: #00ffff;
+            padding: 12px 15px;
+            cursor: pointer;
+            width: 100%;
+            margin-bottom: 10px;
+        }
+        .audio-btn:hover {
+            background: rgba(0,255,255,0.4);
+        }
+        .collapse-btn {
+            position: absolute;
+            top: 5px;
+            right: 5px;
+            background: rgba(0,255,255,0.2);
+            border: 1px solid #00ffff;
+            color: #00ffff;
+            width: 25px;
+            height: 25px;
+            cursor: pointer;
+            font-size: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .controls.collapsed {
+            width: 35px;
+            height: 35px;
+            padding: 0;
+            overflow: hidden;
+        }
+        .controls.collapsed > *:not(.collapse-btn) {
+            display: none;
+        }
+    </style>
+</head>
+<body>
+    <div class="infinite-scroll-content">
+        <canvas id="canvas"></canvas>
+        
+        <div class="live-values" id="liveValues">
+            <div>🎮 ORIGINAL MVEP + MOUSE</div>
+            <div>Color Shift: <span id="colorValue">0.0</span></div>
+            <div>Grid Density: <span id="gridValue">12</span></div>
+            <div>Morph Factor: <span id="morphValue">0.0</span></div>
+            <div>Dimension: <span id="dimensionValue">3.5</span></div>
+            <div>Rotation: <span id="rotationValue">0.0, 0.0</span></div>
+            <div>Glitch: <span id="glitchValue">0.15</span></div>
+        </div>
+        
+        <div class="controls" id="controls">
+            <button class="collapse-btn" id="collapseBtn">▼</button>
+            
+            <button class="audio-btn" id="audioBtn">Enable Audio</button>
+        </div>
+        
+        <div class="controls-indicator">
+            <strong>🖱️ ORIGINAL MVEP MOUSE CONTROLS:</strong><br>
+            • <strong>Mouse Position</strong>: Direct rotation control<br>
+            • <strong>Scroll Wheel</strong>: Grid density (2 to 50)<br>
+            • <strong>Shift + Mouse X</strong>: Color shift<br>
+            • <strong>Ctrl + Mouse Y</strong>: Morph factor<br>
+            • <strong>Alt + Mouse Y</strong>: Dimension control<br>
+            • <strong>Middle Click + Drag</strong>: Glitch intensity<br>
+            📱 <strong>Touch: Tap + drag for multi-touch control!</strong>
+        </div>
+    </div>
+
+    <script>
+        let mvepVisualizer = null;
+
+        // Audio control function
+        async function toggleAudio() {
+            const audioBtn = document.getElementById('audioBtn');
+            
+            if (!mvepVisualizer) {
+                console.error('❌ MVEP visualizer not ready');
+                return;
+            }
+            
+            if (!mvepVisualizer.audioEnabled) {
+                try {
+                    await mvepVisualizer.initAudio();
+                    audioBtn.textContent = 'Disable Audio';
+                    audioBtn.style.background = 'rgba(255,0,255,0.4)';
+                    console.log('✅ Audio enabled');
+                } catch (error) {
+                    console.error('Audio init failed:', error);
+                    audioBtn.textContent = 'Audio Failed';
+                }
+            } else {
+                mvepVisualizer.toggleAudio();
+                audioBtn.textContent = mvepVisualizer.audioEnabled ? 'Disable Audio' : 'Enable Audio';
+                audioBtn.style.background = mvepVisualizer.audioEnabled ? 
+                    'rgba(255,0,255,0.4)' : 'rgba(0,255,255,0.2)';
+                console.log(`✅ Audio ${mvepVisualizer.audioEnabled ? 'enabled' : 'disabled'}`);
+            }
+        }
+
+        class MVEPMouseExperimental {
+            constructor() {
+                this.canvas = document.getElementById('canvas');
+                this.gl = this.canvas.getContext('webgl') || this.canvas.getContext('experimental-webgl');
+                
+                this.mouseX = 0.5;
+                this.mouseY = 0.5;
+                this.time = 0;
+                this.startTime = Date.now();
+                
+                // Drag states for different mouse buttons
+                this.isDragging = false;
+                this.dragButton = 0;
+                this.lastMouseX = 0;
+                this.lastMouseY = 0;
+                
+                // Direct rotation control (no speed)
+                this.rotationX = 0;
+                this.rotationY = 0;
+                
+                // MVEP Parameters - NATURAL MOUSE CONTROL
+                this.params = {
+                    dimension: 3.5,        
+                    morphFactor: 0.0,      // Start with NO morph
+                    glitchIntensity: 0.15, 
+                    gridDensity: 12,       // Scroll wheel
+                    moireScale: 1.01,      // Fixed
+                    colorShift: 0.0        
+                };
+                
+                // Audio
+                this.audioEnabled = false;
+                this.audioContext = null;
+                this.analyser = null;
+                this.audioData = { bass: 0, mid: 0, high: 0, pitch: 0 };
+                
+                this.init();
+            }
+            
+            init() {
+                if (!this.gl) {
+                    alert('WebGL not supported');
+                    return;
+                }
+                
+                this.setupCanvas();
+                this.createShaders();
+                this.createGeometry();
+                this.bindEvents();
+                this.animate();
+            }
+            
+            setupCanvas() {
+                const resize = () => {
+                    this.canvas.width = window.innerWidth;
+                    this.canvas.height = window.innerHeight;
+                    this.gl.viewport(0, 0, this.canvas.width, this.canvas.height);
+                };
+                resize();
+                window.addEventListener('resize', resize);
+            }
+            
+            createShaders() {
+                const vertexShaderSource = `
+                    attribute vec2 a_position;
+                    varying vec2 v_uv;
+                    
+                    void main() {
+                        v_uv = a_position * 0.5 + 0.5;
+                        gl_Position = vec4(a_position, 0.0, 1.0);
+                    }
+                `;
+                
+                // ORIGINAL MVEP FRAGMENT SHADER (3D ray approach)
+                const fragmentShaderSource = `
+                    precision highp float;
+                    
+                    varying vec2 v_uv;
+                    
+                    uniform float u_time;
+                    uniform float u_dimension;
+                    uniform float u_morphFactor;
+                    uniform float u_glitchIntensity;
+                    uniform float u_rotationX;
+                    uniform float u_rotationY;
+                    uniform float u_gridDensity;
+                    uniform float u_moireScale;
+                    uniform float u_colorShift;
+                    uniform vec2 u_resolution;
+                    uniform vec2 u_mouse;
+                    
+                    // Audio uniforms
+                    uniform float u_audioEnabled;
+                    uniform float u_bassLevel;
+                    uniform float u_midLevel;
+                    uniform float u_highLevel;
+                    uniform float u_pitchFactor;
+                    
+                    // 4D Rotation Matrices
+                    mat4 rotateXW(float theta) {
+                        float c = cos(theta);
+                        float s = sin(theta);
+                        return mat4(
+                            c, 0.0, 0.0, -s,
+                            0.0, 1.0, 0.0, 0.0,
+                            0.0, 0.0, 1.0, 0.0,
+                            s, 0.0, 0.0, c
+                        );
+                    }
+                    
+                    mat4 rotateYW(float theta) {
+                        float c = cos(theta);
+                        float s = sin(theta);
+                        return mat4(
+                            1.0, 0.0, 0.0, 0.0,
+                            0.0, c, 0.0, -s,
+                            0.0, 0.0, 1.0, 0.0,
+                            0.0, s, 0.0, c
+                        );
+                    }
+                    
+                    mat4 rotateZW(float theta) {
+                        float c = cos(theta);
+                        float s = sin(theta);
+                        return mat4(
+                            1.0, 0.0, 0.0, 0.0,
+                            0.0, 1.0, 0.0, 0.0,
+                            0.0, 0.0, c, -s,
+                            0.0, 0.0, s, c
+                        );
+                    }
+                    
+                    // 4D to 3D projection
+                    vec3 project4Dto3D(vec4 point4D) {
+                        float w = point4D.w + 2.0;
+                        return point4D.xyz / max(w, 0.1);
+                    }
+                    
+                    // ORIGINAL MVEP 4D Hypercube distance field
+                    float hypercubeLattice(vec3 p, float morphFactor, float gridDensity) {
+                        // Convert to 4D space with dimension parameter
+                        vec4 p4d = vec4(p * gridDensity, morphFactor * u_dimension);
+                        
+                        // Apply 4D rotations with DIRECT MOUSE CONTROL ONLY
+                        float rotX = u_rotationX * u_dimension;
+                        float rotY = u_rotationY * u_dimension;
+                        float rotZ = 0.0; // NO time-based rotation
+                        
+                        // Audio-reactive rotation if available
+                        if (u_audioEnabled > 0.5) {
+                            rotX += u_bassLevel * 4.0;
+                            rotY += u_midLevel * 3.0;
+                            rotZ += u_highLevel * 2.0;
+                        }
+                        
+                        p4d = rotateXW(rotX) * p4d;
+                        p4d = rotateYW(rotY) * p4d;
+                        p4d = rotateZW(rotZ) * p4d;
+                        
+                        // Hypercube lattice calculation
+                        vec4 latticePos = fract(p4d) - 0.5;
+                        float dist = max(max(abs(latticePos.x), abs(latticePos.y)), 
+                                       max(abs(latticePos.z), abs(latticePos.w)));
+                        
+                        return 1.0 - smoothstep(0.4, 0.5, dist);
+                    }
+                    
+                    // Enhanced 4D Moiré pattern generation
+                    float generateMoire(vec3 p, float morphFactor, float gridDensity) {
+                        // Create multiple 4D interference patterns
+                        float grid1 = hypercubeLattice(p, morphFactor, gridDensity);
+                        float grid2 = hypercubeLattice(p, morphFactor, gridDensity * u_moireScale);
+                        
+                        // 4D spherical interference (hypersphere slicing)
+                        float radius4D = length(vec4(p, morphFactor * u_dimension));
+                        float spherical1 = sin(radius4D * gridDensity * 3.14159);
+                        float spherical2 = sin(radius4D * gridDensity * u_moireScale * 3.14159);
+                        float sphericalMoire = abs(spherical1 - spherical2) * 0.3;
+                        
+                        // 4D cylindrical interference (hypercylinder projection)
+                        float cylindrical = sin(length(p.xy) * gridDensity * 6.28) * sin(length(vec2(p.z, morphFactor)) * gridDensity * u_moireScale * 6.28);
+                        
+                        // 4D toroidal interference (hypertorus slicing)
+                        float r1 = length(p.xy);
+                        float r2 = length(vec2(p.z, morphFactor * u_dimension));
+                        float toroidal1 = sin((r1 - 0.5) * gridDensity * 12.56);
+                        float toroidal2 = sin(r2 * gridDensity * u_moireScale * 12.56);
+                        float toroidalMoire = abs(toroidal1 - toroidal2) * 0.2;
+                        
+                        // Combine all interference patterns
+                        float baseMoire = abs(grid1 - grid2) * 0.5;
+                        return baseMoire + sphericalMoire + abs(cylindrical) * 0.1 + toroidalMoire;
+                    }
+                    
+                    // RGB Color splitting effect
+                    vec3 applyColorSplitting(vec2 uv, vec3 baseColor) {
+                        float glitchAmount = u_glitchIntensity;
+                        if (u_audioEnabled > 0.5) {
+                            glitchAmount += u_highLevel * 0.5;
+                        }
+                        
+                        // Sample colors with offsets (simulate actual color splitting)
+                        float r = baseColor.r * (1.0 + glitchAmount * 0.5);
+                        float g = baseColor.g * (1.0 - glitchAmount * 0.2);
+                        float b = baseColor.b * (1.0 + glitchAmount * 0.3);
+                        
+                        return vec3(r, g, b);
+                    }
+                    
+                    // Hue shift function
+                    vec3 hueShift(vec3 color, float shift) {
+                        float c = cos(shift);
+                        float s = sin(shift);
+                        mat3 hueMatrix = mat3(
+                            0.299 + 0.701*c + 0.168*s, 0.587 - 0.587*c + 0.330*s, 0.114 - 0.114*c - 0.497*s,
+                            0.299 - 0.299*c - 0.328*s, 0.587 + 0.413*c + 0.035*s, 0.114 - 0.114*c + 0.292*s,
+                            0.299 - 0.300*c + 1.25*s, 0.587 - 0.588*c - 1.05*s, 0.114 + 0.886*c - 0.203*s
+                        );
+                        return hueMatrix * color;
+                    }
+                    
+                    void main() {
+                        // ORIGINAL MVEP 3D RAY APPROACH
+                        vec2 uv = (v_uv - 0.5) * 2.0;
+                        uv.x *= u_resolution.x / u_resolution.y;
+                        
+                        // Ray direction for 3D effect
+                        vec3 rayDir = normalize(vec3(uv, 1.0));
+                        
+                        // Calculate hypercube lattice with morphing
+                        float morphFactor = u_morphFactor;
+                        if (u_audioEnabled > 0.5) {
+                            morphFactor += u_bassLevel * 1.0;
+                        }
+                        
+                        float lattice = hypercubeLattice(rayDir, morphFactor, u_gridDensity);
+                        float moire = generateMoire(rayDir, morphFactor, u_gridDensity);
+                        
+                        // Combine lattice and moiré
+                        float combined = lattice + moire * 0.5;
+                        
+                        // ORIGINAL MVEP MULTI-COLOR SYSTEM
+                        vec3 color1 = vec3(0.0, 0.8, 1.0);  // Cyan
+                        vec3 color2 = vec3(1.0, 0.0, 1.0);  // Magenta
+                        vec3 color3 = vec3(1.0, 1.0, 0.0);  // Yellow
+                        
+                        // Color mixing based on lattice pattern
+                        vec3 finalColor = mix(mix(color1, color2, combined), color3, moire);
+                        
+                        // Apply hue shifting
+                        finalColor = hueShift(finalColor, u_colorShift);
+                        
+                        // Apply RGB color splitting
+                        finalColor = applyColorSplitting(v_uv, finalColor);
+                        
+                        // Add some glow and intensity
+                        finalColor *= (0.5 + combined * 1.5);
+                        
+                        // Audio-reactive brightness
+                        if (u_audioEnabled > 0.5) {
+                            finalColor *= (0.8 + u_bassLevel * 0.8 + u_midLevel * 0.6);
+                        }
+                        
+                        gl_FragColor = vec4(finalColor, 1.0);
+                    }
+                `;
+                
+                this.vertexShader = this.createShader(this.gl.VERTEX_SHADER, vertexShaderSource);
+                this.fragmentShader = this.createShader(this.gl.FRAGMENT_SHADER, fragmentShaderSource);
+                this.program = this.createProgram(this.vertexShader, this.fragmentShader);
+                this.gl.useProgram(this.program);
+            }
+            
+            createShader(type, source) {
+                const shader = this.gl.createShader(type);
+                this.gl.shaderSource(shader, source);
+                this.gl.compileShader(shader);
+                
+                if (!this.gl.getShaderParameter(shader, this.gl.COMPILE_STATUS)) {
+                    console.error('Shader compile error:', this.gl.getShaderInfoLog(shader));
+                    return null;
+                }
+                return shader;
+            }
+            
+            createProgram(vertexShader, fragmentShader) {
+                const program = this.gl.createProgram();
+                this.gl.attachShader(program, vertexShader);
+                this.gl.attachShader(program, fragmentShader);
+                this.gl.linkProgram(program);
+                
+                if (!this.gl.getProgramParameter(program, this.gl.LINK_STATUS)) {
+                    console.error('Program link error:', this.gl.getProgramInfoLog(program));
+                    return null;
+                }
+                return program;
+            }
+            
+            createGeometry() {
+                const vertices = new Float32Array([
+                    -1, -1,
+                     1, -1,
+                    -1,  1,
+                     1, -1,
+                     1,  1,
+                    -1,  1
+                ]);
+                
+                this.vertexBuffer = this.gl.createBuffer();
+                this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.vertexBuffer);
+                this.gl.bufferData(this.gl.ARRAY_BUFFER, vertices, this.gl.STATIC_DRAW);
+                
+                this.positionLocation = this.gl.getAttribLocation(this.program, 'a_position');
+                this.gl.enableVertexAttribArray(this.positionLocation);
+                this.gl.vertexAttribPointer(this.positionLocation, 2, this.gl.FLOAT, false, 0, 0);
+            }
+            
+            updateLiveValues() {
+                document.getElementById('colorValue').textContent = this.params.colorShift.toFixed(1);
+                document.getElementById('gridValue').textContent = this.params.gridDensity.toFixed(0);
+                document.getElementById('morphValue').textContent = this.params.morphFactor.toFixed(1);
+                document.getElementById('dimensionValue').textContent = this.params.dimension.toFixed(1);
+                document.getElementById('rotationValue').textContent = 
+                    `${this.rotationX.toFixed(1)}, ${this.rotationY.toFixed(1)}`;
+                document.getElementById('glitchValue').textContent = this.params.glitchIntensity.toFixed(2);
+            }
+            
+            bindEvents() {
+                // Collapse functionality
+                const collapseBtn = document.getElementById('collapseBtn');
+                const controls = document.getElementById('controls');
+                
+                collapseBtn.addEventListener('click', () => {
+                    controls.classList.toggle('collapsed');
+                    collapseBtn.textContent = controls.classList.contains('collapsed') ? '▲' : '▼';
+                });
+                
+                // Audio button
+                const audioBtn = document.getElementById('audioBtn');
+                audioBtn.addEventListener('click', toggleAudio);
+                
+                // DIRECT MOUSE POSITION CONTROL SYSTEM
+                
+                const handleMouseMove = (e) => {
+                    const rect = this.canvas.getBoundingClientRect();
+                    const x = (e.clientX - rect.left) / rect.width;
+                    const y = 1.0 - (e.clientY - rect.top) / rect.height;
+                    
+                    this.mouseX = x;
+                    this.mouseY = y;
+                    
+                    // MOUSE POSITION IS THE ROTATION (not movement delta)
+                    this.rotationX = (y - 0.5) * 6.28; // Full rotation range
+                    this.rotationY = (x - 0.5) * 6.28; // Full rotation range
+                    
+                    // MODIFIER KEY CONTROLS (using position, not delta)
+                    if (e.shiftKey) {
+                        // Shift + Mouse X = Color shift
+                        this.params.colorShift = (x - 0.5) * 4.0; // -2 to +2
+                    }
+                    
+                    if (e.ctrlKey) {
+                        // Ctrl + Mouse Y = Morph factor
+                        this.params.morphFactor = y * 3.0; // 0 to 3
+                    }
+                    
+                    if (e.altKey) {
+                        // Alt + Mouse Y = Dimension
+                        this.params.dimension = 1.0 + y * 5.0; // 1 to 6
+                    }
+                    
+                    this.updateLiveValues();
+                };
+                
+                // Mouse movement
+                this.canvas.addEventListener('mousemove', handleMouseMove);
+                
+                // Middle click drag for glitch only
+                const startDrag = (e) => {
+                    if (e.button === 1) { // Middle button only
+                        this.isDragging = true;
+                        this.lastMouseX = e.clientX;
+                        this.lastMouseY = e.clientY;
+                        e.preventDefault();
+                    }
+                };
+                
+                const drag = (e) => {
+                    if (!this.isDragging) return;
+                    
+                    const deltaY = (e.clientY - this.lastMouseY) * 0.01;
+                    this.params.glitchIntensity = Math.max(0, Math.min(1, this.params.glitchIntensity + deltaY));
+                    
+                    this.lastMouseY = e.clientY;
+                    this.updateLiveValues();
+                    e.preventDefault();
+                };
+                
+                const endDrag = () => {
+                    this.isDragging = false;
+                };
+                
+                this.canvas.addEventListener('mousedown', startDrag);
+                this.canvas.addEventListener('mousemove', drag);
+                this.canvas.addEventListener('mouseup', endDrag);
+                
+                // Prevent context menu on right click
+                this.canvas.addEventListener('contextmenu', (e) => e.preventDefault());
+                
+                // Scroll wheel for grid density
+                this.canvas.addEventListener('wheel', (e) => {
+                    e.preventDefault();
+                    const delta = e.deltaY > 0 ? -1 : 1;
+                    this.params.gridDensity = Math.max(2, Math.min(50, this.params.gridDensity + delta));
+                    this.updateLiveValues();
+                });
+                
+                // Touch events (simplified)
+                this.canvas.addEventListener('touchstart', (e) => {
+                    if (e.touches.length === 1) {
+                        updateMouseParams(e.touches[0]);
+                        startDrag({ clientX: e.touches[0].clientX, clientY: e.touches[0].clientY, button: 0 });
+                    }
+                    e.preventDefault();
+                }, { passive: false });
+                
+                this.canvas.addEventListener('touchmove', (e) => {
+                    if (e.touches.length === 1) {
+                        updateMouseParams(e.touches[0]);
+                        drag({ clientX: e.touches[0].clientX, clientY: e.touches[0].clientY });
+                    }
+                    e.preventDefault();
+                }, { passive: false });
+                
+                this.canvas.addEventListener('touchend', endDrag);
+                
+                // Prevent scrolling on document
+                document.body.addEventListener('touchmove', (e) => e.preventDefault(), { passive: false });
+                document.body.addEventListener('wheel', (e) => e.preventDefault(), { passive: false });
+            }
+            
+            async initAudio() {
+                try {
+                    this.audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                    const source = this.audioContext.createMediaStreamSource(stream);
+                    
+                    this.analyser = this.audioContext.createAnalyser();
+                    this.analyser.fftSize = 1024;
+                    this.analyser.smoothingTimeConstant = 0.8;
+                    
+                    source.connect(this.analyser);
+                    
+                    this.frequencyData = new Uint8Array(this.analyser.frequencyBinCount);
+                    this.audioEnabled = true;
+                    
+                    console.log('✅ Audio initialized');
+                } catch (error) {
+                    console.error('Audio initialization failed:', error);
+                    throw error;
+                }
+            }
+            
+            toggleAudio() {
+                if (this.audioContext) {
+                    this.audioEnabled = !this.audioEnabled;
+                    if (!this.audioEnabled) {
+                        this.audioContext.close();
+                        this.audioContext = null;
+                    }
+                }
+            }
+            
+            updateAudioData() {
+                if (!this.audioEnabled || !this.analyser) {
+                    this.audioData = { bass: 0, mid: 0, high: 0, pitch: 0 };
+                    return;
+                }
+                
+                this.analyser.getByteFrequencyData(this.frequencyData);
+                
+                // Extract frequency bands
+                const bass = this.frequencyData.slice(0, 85);
+                const mid = this.frequencyData.slice(85, 255);
+                const high = this.frequencyData.slice(255, 512);
+                
+                // Calculate averages
+                this.audioData.bass = bass.reduce((a, b) => a + b) / bass.length / 255;
+                this.audioData.mid = mid.reduce((a, b) => a + b) / mid.length / 255;
+                this.audioData.high = high.reduce((a, b) => a + b) / high.length / 255;
+                
+                // Simple pitch detection (find peak frequency)
+                let maxIndex = 0;
+                let maxValue = 0;
+                for (let i = 0; i < this.frequencyData.length; i++) {
+                    if (this.frequencyData[i] > maxValue) {
+                        maxValue = this.frequencyData[i];
+                        maxIndex = i;
+                    }
+                }
+                this.audioData.pitch = maxIndex / this.frequencyData.length;
+            }
+            
+            animate() {
+                this.time = (Date.now() - this.startTime) / 1000;
+                
+                this.updateAudioData();
+                
+                // Set uniforms
+                const timeLocation = this.gl.getUniformLocation(this.program, 'u_time');
+                const dimensionLocation = this.gl.getUniformLocation(this.program, 'u_dimension');
+                const morphFactorLocation = this.gl.getUniformLocation(this.program, 'u_morphFactor');
+                const glitchIntensityLocation = this.gl.getUniformLocation(this.program, 'u_glitchIntensity');
+                const rotationXLocation = this.gl.getUniformLocation(this.program, 'u_rotationX');
+                const rotationYLocation = this.gl.getUniformLocation(this.program, 'u_rotationY');
+                const gridDensityLocation = this.gl.getUniformLocation(this.program, 'u_gridDensity');
+                const moireScaleLocation = this.gl.getUniformLocation(this.program, 'u_moireScale');
+                const colorShiftLocation = this.gl.getUniformLocation(this.program, 'u_colorShift');
+                const resolutionLocation = this.gl.getUniformLocation(this.program, 'u_resolution');
+                const mouseLocation = this.gl.getUniformLocation(this.program, 'u_mouse');
+                
+                // Audio uniforms
+                const audioEnabledLocation = this.gl.getUniformLocation(this.program, 'u_audioEnabled');
+                const bassLevelLocation = this.gl.getUniformLocation(this.program, 'u_bassLevel');
+                const midLevelLocation = this.gl.getUniformLocation(this.program, 'u_midLevel');
+                const highLevelLocation = this.gl.getUniformLocation(this.program, 'u_highLevel');
+                const pitchFactorLocation = this.gl.getUniformLocation(this.program, 'u_pitchFactor');
+                
+                this.gl.uniform1f(timeLocation, this.time);
+                this.gl.uniform1f(dimensionLocation, this.params.dimension);
+                this.gl.uniform1f(morphFactorLocation, this.params.morphFactor);
+                this.gl.uniform1f(glitchIntensityLocation, this.params.glitchIntensity);
+                this.gl.uniform1f(rotationXLocation, this.rotationX);
+                this.gl.uniform1f(rotationYLocation, this.rotationY);
+                this.gl.uniform1f(gridDensityLocation, this.params.gridDensity);
+                // 4D geometric moiré animation
+                const animatedMoireScale = this.params.moireScale + 
+                    Math.sin(this.time * 1.5) * 0.005 +           // Primary oscillation
+                    Math.sin(this.time * 0.7) * 0.003 +           // Secondary oscillation
+                    Math.sin(this.time * 2.3) * 0.002;            // Tertiary oscillation
+                this.gl.uniform1f(moireScaleLocation, animatedMoireScale);
+                this.gl.uniform1f(colorShiftLocation, this.params.colorShift);
+                this.gl.uniform2f(resolutionLocation, this.canvas.width, this.canvas.height);
+                this.gl.uniform2f(mouseLocation, this.mouseX, this.mouseY);
+                
+                // Audio uniforms
+                this.gl.uniform1f(audioEnabledLocation, this.audioEnabled ? 1.0 : 0.0);
+                this.gl.uniform1f(bassLevelLocation, this.audioData.bass);
+                this.gl.uniform1f(midLevelLocation, this.audioData.mid);
+                this.gl.uniform1f(highLevelLocation, this.audioData.high);
+                this.gl.uniform1f(pitchFactorLocation, this.audioData.pitch);
+                
+                // Clear and draw
+                this.gl.clearColor(0, 0, 0, 1);
+                this.gl.clear(this.gl.COLOR_BUFFER_BIT);
+                this.gl.drawArrays(this.gl.TRIANGLES, 0, 6);
+                
+                requestAnimationFrame(() => this.animate());
+            }
+        }
+        
+        // Initialize when page loads
+        window.addEventListener('load', () => {
+            mvepVisualizer = new MVEPMouseExperimental();
+            console.log('✅ MVEP Mouse Experimental initialized');
+        });
+    </script>
+</body>
+</html>

@@ -1,0 +1,927 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>HypercubeCore WebGL Framework</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            background: #000;
+            overflow: hidden;
+            font-family: 'Courier New', monospace;
+        }
+        #canvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+        }
+        .framework-hud {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            color: #00ffff;
+            font-size: 12px;
+            background: rgba(0,0,0,0.9);
+            padding: 20px;
+            border: 1px solid #00ffff;
+            z-index: 100;
+            width: 300px;
+            border-radius: 8px;
+            transition: all 0.3s ease;
+        }
+        
+        .framework-hud.collapsed {
+            width: 40px;
+            height: 40px;
+            padding: 8px;
+            overflow: hidden;
+        }
+        .performance-panel {
+            position: absolute;
+            bottom: 20px;
+            left: 20px;
+            background: rgba(0,0,0,0.9);
+            padding: 15px;
+            border: 1px solid #ffff00;
+            color: #ffff00;
+            z-index: 100;
+            width: 280px;
+            font-size: 11px;
+            border-radius: 8px;
+            transition: all 0.3s ease;
+        }
+        
+        .performance-panel.collapsed {
+            width: 40px;
+            height: 40px;
+            padding: 8px;
+            overflow: hidden;
+        }
+        .geometry-selector {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            background: rgba(0,0,0,0.9);
+            padding: 20px;
+            border: 1px solid #ff00ff;
+            color: #ff00ff;
+            z-index: 100;
+            width: 250px;
+            border-radius: 8px;
+            transition: all 0.3s ease;
+        }
+        
+        .geometry-selector.collapsed {
+            width: 40px;
+            height: 40px;
+            padding: 8px;
+            overflow: hidden;
+        }
+        .geometry-btn {
+            background: rgba(255,0,255,0.2);
+            border: 1px solid #ff00ff;
+            color: #ff00ff;
+            padding: 8px 12px;
+            cursor: pointer;
+            font-size: 10px;
+            margin: 3px;
+            border-radius: 4px;
+            transition: all 0.3s ease;
+        }
+        .geometry-btn:hover, .geometry-btn.active {
+            background: rgba(255,0,255,0.4);
+            transform: translateY(-1px);
+        }
+        .shader-controls {
+            position: absolute;
+            bottom: 20px;
+            right: 20px;
+            background: rgba(0,0,0,0.9);
+            padding: 15px;
+            border: 1px solid #00ff00;
+            color: #00ff00;
+            z-index: 100;
+            width: 220px;
+            font-size: 11px;
+            border-radius: 8px;
+            transition: all 0.3s ease;
+        }
+        
+        .shader-controls.collapsed {
+            width: 40px;
+            height: 40px;
+            padding: 8px;
+            overflow: hidden;
+        }
+        .control-group {
+            margin-bottom: 12px;
+        }
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-size: 10px;
+        }
+        input[type="range"] {
+            width: 100%;
+            height: 2px;
+            background: rgba(0,255,0,0.3);
+            outline: none;
+        }
+        .value-display {
+            color: #ffff00;
+            font-weight: bold;
+        }
+        .status-indicator {
+            display: inline-block;
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            margin-right: 5px;
+        }
+        .status-optimal { background: #00ff00; }
+        .status-good { background: #ffff00; }
+        .status-warning { background: #ff8800; }
+        .status-critical { background: #ff0000; }
+        h3 {
+            margin: 0 0 10px 0;
+            font-size: 14px;
+        }
+        .metric-row {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 5px;
+        }
+        
+        .hud-toggle {
+            position: absolute;
+            top: 5px;
+            right: 5px;
+            background: rgba(0, 255, 255, 0.2);
+            border: 1px solid #00ffff;
+            color: #00ffff;
+            cursor: pointer;
+            padding: 3px 6px;
+            font-size: 10px;
+            z-index: 101;
+            border-radius: 4px;
+            transition: all 0.3s ease;
+        }
+        
+        .hud-toggle:hover {
+            background: rgba(0, 255, 255, 0.4);
+        }
+        
+        .performance-toggle {
+            background: rgba(255, 255, 0, 0.2);
+            border: 1px solid #ffff00;
+            color: #ffff00;
+        }
+        
+        .performance-toggle:hover {
+            background: rgba(255, 255, 0, 0.4);
+        }
+        
+        .geometry-toggle {
+            background: rgba(255, 0, 255, 0.2);
+            border: 1px solid #ff00ff;
+            color: #ff00ff;
+        }
+        
+        .geometry-toggle:hover {
+            background: rgba(255, 0, 255, 0.4);
+        }
+        
+        .shader-toggle {
+            background: rgba(0, 255, 0, 0.2);
+            border: 1px solid #00ff00;
+            color: #00ff00;
+        }
+        
+        .shader-toggle:hover {
+            background: rgba(0, 255, 0, 0.4);
+        }
+        
+        .hud-content {
+            transition: opacity 0.3s ease;
+        }
+        
+        .framework-hud.collapsed .hud-content,
+        .performance-panel.collapsed .hud-content,
+        .geometry-selector.collapsed .hud-content,
+        .shader-controls.collapsed .hud-content {
+            opacity: 0;
+            pointer-events: none;
+        }
+    </style>
+</head>
+<body>
+    <canvas id="canvas"></canvas>
+    
+    <div class="framework-hud collapsed" id="frameworkHud">
+        <button class="hud-toggle" onclick="toggleHUD('frameworkHud')">▼</button>
+        <div class="hud-content">
+        <h3 style="color: #00ffff;">HYPERCUBE CORE FRAMEWORK</h3>
+        <div>Core Version: <span class="value-display">v2.1.0</span></div>
+        <div>WebGL Context: <span class="status-indicator" id="webglStatus"></span><span id="webglVersion">WebGL 2.0</span></div>
+        <div>Shader Compilation: <span class="status-indicator" id="shaderStatus"></span><span id="shaderState">READY</span></div>
+        <div>4D Math Engine: <span class="status-indicator" id="mathStatus"></span><span id="mathState">ACTIVE</span></div>
+        <div>Geometry Registry: <span class="value-display" id="geometryCount">8</span> types loaded</div>
+        <div>Memory Pool: <span class="value-display" id="memoryUsage">12.3</span>MB allocated</div>
+        <div>Extensions: <span class="value-display" id="extensionCount">6</span> active</div>
+        <div style="margin-top: 15px; font-size: 10px; color: #888;">
+            High-performance 4D visualization framework<br>
+            Unified shader management and optimization<br>
+            Modular geometry system with hot-swapping
+        </div>
+        </div>
+    </div>
+    
+    <div class="performance-panel collapsed" id="performancePanel">
+        <button class="hud-toggle performance-toggle" onclick="toggleHUD('performancePanel')">▼</button>
+        <div class="hud-content">
+        <h3 style="color: #ffff00;">PERFORMANCE METRICS</h3>
+        <div class="metric-row">
+            <span>Frame Rate:</span>
+            <span class="value-display" id="frameRate">60.0</span> FPS
+        </div>
+        <div class="metric-row">
+            <span>Frame Time:</span>
+            <span class="value-display" id="frameTime">16.7</span> ms
+        </div>
+        <div class="metric-row">
+            <span>Draw Calls:</span>
+            <span class="value-display" id="drawCalls">1</span>
+        </div>
+        <div class="metric-row">
+            <span>Vertices:</span>
+            <span class="value-display" id="vertexCount">4</span>
+        </div>
+        <div class="metric-row">
+            <span>GPU Memory:</span>
+            <span class="value-display" id="gpuMemory">8.4</span> MB
+        </div>
+        <div class="metric-row">
+            <span>Shader Uniforms:</span>
+            <span class="value-display" id="uniformCount">12</span>
+        </div>
+        <div class="metric-row">
+            <span>Optimization:</span>
+            <span class="status-indicator" id="optimizationStatus"></span><span id="optimizationLevel">HIGH</span>
+        </div>
+        </div>
+    </div>
+    
+    <div class="geometry-selector collapsed" id="geometrySelector">
+        <button class="hud-toggle geometry-toggle" onclick="toggleHUD('geometrySelector')">▼</button>
+        <div class="hud-content">
+        <h3 style="color: #ff00ff;">GEOMETRY REGISTRY</h3>
+        <div>
+            <button class="geometry-btn active" data-geometry="hypercube">4D HYPERCUBE</button>
+            <button class="geometry-btn" data-geometry="tesseract">TESSERACT</button>
+            <button class="geometry-btn" data-geometry="hyperprism">HYPERPRISM</button>
+            <button class="geometry-btn" data-geometry="hypersphere">HYPERSPHERE</button>
+            <button class="geometry-btn" data-geometry="klein">KLEIN BOTTLE</button>
+            <button class="geometry-btn" data-geometry="mobius">MÖBIUS STRIP</button>
+            <button class="geometry-btn" data-geometry="torus4d">4D TORUS</button>
+            <button class="geometry-btn" data-geometry="fractal4d">4D FRACTAL</button>
+        </div>
+        <div style="margin-top: 15px; font-size: 10px; color: #888;">
+            Click to hot-swap geometry types<br>
+            All geometries use unified 4D mathematics<br>
+            Optimized shaders with automatic compilation
+        </div>
+        </div>
+    </div>
+    
+    <div class="shader-controls collapsed" id="shaderControls">
+        <button class="hud-toggle shader-toggle" onclick="toggleHUD('shaderControls')">▼</button>
+        <div class="hud-content">
+        <h3 style="color: #00ff00;">SHADER PARAMETERS</h3>
+        <div class="control-group">
+            <label>4D Rotation: <span class="value-display" id="rotationValue">1.0</span></label>
+            <input type="range" id="rotation4d" min="0.0" max="3.0" step="0.1" value="1.0">
+        </div>
+        <div class="control-group">
+            <label>Projection: <span class="value-display" id="projectionValue">2.0</span></label>
+            <input type="range" id="projection4d" min="1.0" max="5.0" step="0.1" value="2.0">
+        </div>
+        <div class="control-group">
+            <label>Complexity: <span class="value-display" id="complexityValue">1.5</span></label>
+            <input type="range" id="complexity" min="0.5" max="3.0" step="0.1" value="1.5">
+        </div>
+        <div class="control-group">
+            <label>Morphing: <span class="value-display" id="morphValue">0.5</span></label>
+            <input type="range" id="morphing" min="0.0" max="2.0" step="0.1" value="0.5">
+        </div>
+        <div class="control-group">
+            <label>Precision: <span class="value-display" id="precisionValue">HIGH</span></label>
+            <input type="range" id="precision" min="0" max="2" step="1" value="2">
+        </div>
+        </div>
+    </div>
+
+    <script>
+        class HypercubeCoreFramework {
+            constructor() {
+                this.canvas = document.getElementById('canvas');
+                this.gl = this.initializeWebGL();
+                
+                this.time = 0;
+                this.startTime = Date.now();
+                this.frameCount = 0;
+                this.lastFrameTime = Date.now();
+                
+                // Framework parameters
+                this.params = {
+                    rotation4d: 1.0,
+                    projection4d: 2.0,
+                    complexity: 1.5,
+                    morphing: 0.5,
+                    precision: 2 // 0=medium, 1=high, 2=highp
+                };
+                
+                this.currentGeometry = 'hypercube';
+                this.geometryRegistry = new Map();
+                this.shaderCache = new Map();
+                this.performanceMetrics = {
+                    fps: 60,
+                    frameTime: 16.7,
+                    drawCalls: 1,
+                    vertices: 4,
+                    gpuMemory: 8.4,
+                    uniforms: 12
+                };
+                
+                this.init();
+            }
+            
+            initializeWebGL() {
+                const gl = this.canvas.getContext('webgl2') || 
+                          this.canvas.getContext('webgl') || 
+                          this.canvas.getContext('experimental-webgl');
+                
+                if (!gl) {
+                    alert('WebGL not supported - HypercubeCore requires hardware acceleration');
+                    return null;
+                }
+                
+                // Enable extensions for performance
+                this.extensions = {
+                    derivatives: gl.getExtension('OES_standard_derivatives'),
+                    textureLod: gl.getExtension('EXT_shader_texture_lod'),
+                    fragDepth: gl.getExtension('EXT_frag_depth'),
+                    drawBuffers: gl.getExtension('WEBGL_draw_buffers'),
+                    vertexArray: gl.getExtension('OES_vertex_array_object'),
+                    instancedArrays: gl.getExtension('ANGLE_instanced_arrays')
+                };
+                
+                return gl;
+            }
+            
+            init() {
+                if (!this.gl) return;
+                
+                this.setupCanvas();
+                this.registerGeometries();
+                this.createShaderPrograms();
+                this.createGeometry();
+                this.bindEvents();
+                this.animate();
+                
+                this.updateFrameworkStatus();
+            }
+            
+            setupCanvas() {
+                const resize = () => {
+                    this.canvas.width = window.innerWidth;
+                    this.canvas.height = window.innerHeight;
+                    this.gl.viewport(0, 0, this.canvas.width, this.canvas.height);
+                };
+                resize();
+                window.addEventListener('resize', resize);
+            }
+            
+            registerGeometries() {
+                // Register all 4D geometry types with their specific mathematics
+                this.geometryRegistry.set('hypercube', {
+                    name: '4D Hypercube',
+                    vertices: 16,
+                    edges: 32,
+                    faces: 24,
+                    cells: 8,
+                    distanceFunction: 'hypercubeDistance',
+                    rotationPlanes: 6
+                });
+                
+                this.geometryRegistry.set('tesseract', {
+                    name: 'Tesseract Lattice',
+                    vertices: 16,
+                    edges: 32,
+                    faces: 24,
+                    cells: 8,
+                    distanceFunction: 'tesseractDistance',
+                    rotationPlanes: 6
+                });
+                
+                this.geometryRegistry.set('hyperprism', {
+                    name: '4D Hyperprism',
+                    vertices: 12,
+                    edges: 24,
+                    faces: 18,
+                    cells: 6,
+                    distanceFunction: 'hyperprismDistance',
+                    rotationPlanes: 4
+                });
+                
+                this.geometryRegistry.set('hypersphere', {
+                    name: '4D Hypersphere',
+                    vertices: 'infinite',
+                    edges: 'infinite',
+                    faces: 'infinite', 
+                    cells: 1,
+                    distanceFunction: 'hypersphereDistance',
+                    rotationPlanes: 6
+                });
+                
+                this.geometryRegistry.set('klein', {
+                    name: 'Klein Bottle 4D',
+                    vertices: 'infinite',
+                    edges: 'infinite',
+                    faces: 1,
+                    cells: 1,
+                    distanceFunction: 'kleinBottleDistance',
+                    rotationPlanes: 3
+                });
+                
+                this.geometryRegistry.set('mobius', {
+                    name: 'Möbius Strip 4D',
+                    vertices: 'infinite',
+                    edges: 1,
+                    faces: 1,
+                    cells: 1,
+                    distanceFunction: 'mobiusDistance',
+                    rotationPlanes: 2
+                });
+                
+                this.geometryRegistry.set('torus4d', {
+                    name: '4D Torus',
+                    vertices: 'infinite',
+                    edges: 'infinite',
+                    faces: 'infinite',
+                    cells: 1,
+                    distanceFunction: 'torus4dDistance',
+                    rotationPlanes: 4
+                });
+                
+                this.geometryRegistry.set('fractal4d', {
+                    name: '4D Fractal',
+                    vertices: 'infinite',
+                    edges: 'infinite',
+                    faces: 'infinite',
+                    cells: 'infinite',
+                    distanceFunction: 'fractal4dDistance',
+                    rotationPlanes: 6
+                });
+            }
+            
+            createShaderPrograms() {
+                const precisionLevels = ['mediump', 'highp', 'highp'];
+                const precision = precisionLevels[this.params.precision];
+                
+                const vertexShaderSource = `
+                    precision ${precision} float;
+                    attribute vec2 a_position;
+                    varying vec2 v_uv;
+                    
+                    void main() {
+                        v_uv = a_position * 0.5 + 0.5;
+                        gl_Position = vec4(a_position, 0.0, 1.0);
+                    }
+                `;
+                
+                const fragmentShaderSource = `
+                    precision ${precision} float;
+                    
+                    varying vec2 v_uv;
+                    
+                    uniform float u_time;
+                    uniform float u_rotation4d;
+                    uniform float u_projection4d;
+                    uniform float u_complexity;
+                    uniform float u_morphing;
+                    uniform vec2 u_resolution;
+                    uniform vec2 u_mouse;
+                    uniform int u_geometryType;
+                    
+                    // High-performance 4D rotation matrices
+                    mat4 rotateXW(float theta) {
+                        float c = cos(theta), s = sin(theta);
+                        return mat4(c, 0.0, 0.0, -s, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, s, 0.0, 0.0, c);
+                    }
+                    
+                    mat4 rotateYW(float theta) {
+                        float c = cos(theta), s = sin(theta);
+                        return mat4(1.0, 0.0, 0.0, 0.0, 0.0, c, 0.0, -s, 0.0, 0.0, 1.0, 0.0, 0.0, s, 0.0, c);
+                    }
+                    
+                    mat4 rotateZW(float theta) {
+                        float c = cos(theta), s = sin(theta);
+                        return mat4(1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, c, -s, 0.0, 0.0, s, c);
+                    }
+                    
+                    mat4 rotateXY(float theta) {
+                        float c = cos(theta), s = sin(theta);
+                        return mat4(c, -s, 0.0, 0.0, s, c, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0);
+                    }
+                    
+                    mat4 rotateXZ(float theta) {
+                        float c = cos(theta), s = sin(theta);
+                        return mat4(c, 0.0, -s, 0.0, 0.0, 1.0, 0.0, 0.0, s, 0.0, c, 0.0, 0.0, 0.0, 0.0, 1.0);
+                    }
+                    
+                    mat4 rotateYZ(float theta) {
+                        float c = cos(theta), s = sin(theta);
+                        return mat4(1.0, 0.0, 0.0, 0.0, 0.0, c, -s, 0.0, 0.0, s, c, 0.0, 0.0, 0.0, 0.0, 1.0);
+                    }
+                    
+                    // Unified 4D projection system
+                    vec3 project4D(vec4 p4d) {
+                        float w = p4d.w + u_projection4d;
+                        return p4d.xyz / max(w, 0.1);
+                    }
+                    
+                    // Hypercube distance field
+                    float hypercubeDistance(vec3 p) {
+                        vec4 p4d = vec4(p, sin(p.x * 0.3 + u_time * 0.2) * u_morphing);
+                        
+                        float rt = u_time * u_rotation4d;
+                        p4d = rotateXW(rt * 0.7) * p4d;
+                        p4d = rotateYW(rt * 0.5) * p4d;
+                        p4d = rotateZW(rt * 0.3) * p4d;
+                        
+                        vec3 q = project4D(p4d);
+                        vec3 d = abs(fract(q * u_complexity) - 0.5) - 0.3;
+                        return max(max(d.x, d.y), d.z);
+                    }
+                    
+                    // Tesseract distance field
+                    float tesseractDistance(vec3 p) {
+                        vec4 p4d = vec4(p, cos(p.y * 0.4 + u_time * 0.15) * u_morphing);
+                        
+                        float rt = u_time * u_rotation4d;
+                        p4d = rotateXW(rt * 0.6) * p4d;
+                        p4d = rotateYZ(rt * 0.4) * p4d;
+                        
+                        vec3 q = project4D(p4d);
+                        vec3 cell = fract(q * u_complexity) - 0.5;
+                        return length(cell) - 0.2;
+                    }
+                    
+                    // Hyperprism distance field
+                    float hyperprismDistance(vec3 p) {
+                        vec4 p4d = vec4(p, sin(p.z * 0.2 + u_time * 0.25) * u_morphing * 0.5);
+                        
+                        float rt = u_time * u_rotation4d;
+                        p4d = rotateXY(rt * 0.8) * p4d;
+                        p4d = rotateZW(rt * 0.6) * p4d;
+                        
+                        vec3 q = project4D(p4d);
+                        vec2 h = abs(fract(q.xy * u_complexity) - 0.5) - 0.25;
+                        return max(max(h.x, h.y), abs(q.z) - 1.0);
+                    }
+                    
+                    // Hypersphere distance field
+                    float hypersphereDistance(vec3 p) {
+                        vec4 p4d = vec4(p, length(p) * sin(u_time * 0.1) * u_morphing * 0.3);
+                        
+                        float rt = u_time * u_rotation4d;
+                        p4d = rotateXW(rt * 0.9) * p4d;
+                        p4d = rotateYW(rt * 0.7) * p4d;
+                        p4d = rotateZW(rt * 0.5) * p4d;
+                        
+                        vec3 q = project4D(p4d);
+                        return length(q) - (1.0 + sin(u_time * 0.3) * 0.2);
+                    }
+                    
+                    // Klein bottle distance field
+                    float kleinBottleDistance(vec3 p) {
+                        vec4 p4d = vec4(p, sin(atan(p.y, p.x) * 2.0 + u_time * 0.2) * u_morphing);
+                        
+                        float rt = u_time * u_rotation4d;
+                        p4d = rotateYW(rt * 0.4) * p4d;
+                        p4d = rotateXZ(rt * 0.6) * p4d;
+                        
+                        vec3 q = project4D(p4d);
+                        float theta = atan(q.y, q.x);
+                        float r = length(q.xy) - (2.0 + cos(theta * 2.0) * 0.5);
+                        return sqrt(r * r + q.z * q.z) - 0.3;
+                    }
+                    
+                    // Möbius strip distance field  
+                    float mobiusDistance(vec3 p) {
+                        vec4 p4d = vec4(p, sin(atan(p.y, p.x) + u_time * 0.3) * u_morphing * 0.5);
+                        
+                        float rt = u_time * u_rotation4d;
+                        p4d = rotateXY(rt * 0.5) * p4d;
+                        p4d = rotateZW(rt * 0.3) * p4d;
+                        
+                        vec3 q = project4D(p4d);
+                        float theta = atan(q.y, q.x);
+                        vec2 strip = vec2(length(q.xy) - 1.5, q.z + sin(theta * 0.5) * 0.3);
+                        return length(strip) - 0.1;
+                    }
+                    
+                    // 4D torus distance field
+                    float torus4dDistance(vec3 p) {
+                        vec4 p4d = vec4(p, sin(length(p.xy) + u_time * 0.4) * u_morphing);
+                        
+                        float rt = u_time * u_rotation4d;
+                        p4d = rotateXW(rt * 0.7) * p4d;
+                        p4d = rotateYZ(rt * 0.5) * p4d;
+                        
+                        vec3 q = project4D(p4d);
+                        vec2 t = vec2(length(q.xy) - 1.2, q.z);
+                        return length(t) - 0.3;
+                    }
+                    
+                    // 4D fractal distance field
+                    float fractal4dDistance(vec3 p) {
+                        vec4 p4d = vec4(p, 0.0);
+                        float fractal = 0.0;
+                        float amplitude = 1.0;
+                        
+                        for (int i = 0; i < 4; i++) {
+                            p4d.w = sin(p4d.x + p4d.y + p4d.z + u_time * 0.2) * u_morphing;
+                            
+                            float rt = u_time * u_rotation4d + float(i) * 0.5;
+                            p4d = rotateXW(rt * 0.8) * p4d;
+                            p4d = rotateYW(rt * 0.6) * p4d;
+                            
+                            vec3 q = project4D(p4d);
+                            q = abs(q) - 0.5;
+                            fractal += max(max(q.x, q.y), q.z) * amplitude;
+                            
+                            p4d.xyz *= 2.0;
+                            amplitude *= 0.5;
+                        }
+                        
+                        return fractal;
+                    }
+                    
+                    void main() {
+                        vec2 uv = (v_uv - 0.5) * 2.0;
+                        uv.x *= u_resolution.x / u_resolution.y;
+                        
+                        vec3 rayOrigin = vec3(0.0, 0.0, 3.0);
+                        vec3 rayDir = normalize(vec3(uv, -1.0));
+                        
+                        float totalDistance = 0.0;
+                        float minDistance = 1000.0;
+                        vec3 currentPos;
+                        
+                        // Optimized ray marching
+                        for (int i = 0; i < 48; i++) {
+                            currentPos = rayOrigin + rayDir * totalDistance;
+                            
+                            float distance;
+                            if (u_geometryType == 0) distance = hypercubeDistance(currentPos);
+                            else if (u_geometryType == 1) distance = tesseractDistance(currentPos);
+                            else if (u_geometryType == 2) distance = hyperprismDistance(currentPos);
+                            else if (u_geometryType == 3) distance = hypersphereDistance(currentPos);
+                            else if (u_geometryType == 4) distance = kleinBottleDistance(currentPos);
+                            else if (u_geometryType == 5) distance = mobiusDistance(currentPos);
+                            else if (u_geometryType == 6) distance = torus4dDistance(currentPos);
+                            else distance = fractal4dDistance(currentPos);
+                            
+                            minDistance = min(minDistance, distance);
+                            
+                            if (distance < 0.001 || totalDistance > 10.0) break;
+                            totalDistance += distance * 0.7;
+                        }
+                        
+                        // Unified color system
+                        vec3 color1 = vec3(0.0, 1.0, 1.0);  // Cyan
+                        vec3 color2 = vec3(1.0, 0.0, 1.0);  // Magenta
+                        vec3 color3 = vec3(1.0, 1.0, 0.0);  // Yellow
+                        
+                        float colorMix = sin(u_time * 0.5 + minDistance * 2.0) * 0.5 + 0.5;
+                        vec3 finalColor = mix(mix(color1, color2, colorMix), color3, colorMix * 0.5);
+                        
+                        float intensity = 1.0 - smoothstep(0.0, 2.0, minDistance);
+                        finalColor *= intensity * (0.5 + u_complexity * 0.5);
+                        
+                        gl_FragColor = vec4(finalColor, 1.0);
+                    }
+                `;
+                
+                const vertexShader = this.compileShader(vertexShaderSource, this.gl.VERTEX_SHADER);
+                const fragmentShader = this.compileShader(fragmentShaderSource, this.gl.FRAGMENT_SHADER);
+                
+                this.program = this.gl.createProgram();
+                this.gl.attachShader(this.program, vertexShader);
+                this.gl.attachShader(this.program, fragmentShader);
+                this.gl.linkProgram(this.program);
+                
+                if (!this.gl.getProgramParameter(this.program, this.gl.LINK_STATUS)) {
+                    console.error('Program link error:', this.gl.getProgramInfoLog(this.program));
+                    return;
+                }
+                
+                this.gl.useProgram(this.program);
+                
+                this.uniforms = {
+                    time: this.gl.getUniformLocation(this.program, 'u_time'),
+                    rotation4d: this.gl.getUniformLocation(this.program, 'u_rotation4d'),
+                    projection4d: this.gl.getUniformLocation(this.program, 'u_projection4d'),
+                    complexity: this.gl.getUniformLocation(this.program, 'u_complexity'),
+                    morphing: this.gl.getUniformLocation(this.program, 'u_morphing'),
+                    resolution: this.gl.getUniformLocation(this.program, 'u_resolution'),
+                    mouse: this.gl.getUniformLocation(this.program, 'u_mouse'),
+                    geometryType: this.gl.getUniformLocation(this.program, 'u_geometryType')
+                };
+            }
+            
+            compileShader(source, type) {
+                const shader = this.gl.createShader(type);
+                this.gl.shaderSource(shader, source);
+                this.gl.compileShader(shader);
+                
+                if (!this.gl.getShaderParameter(shader, this.gl.COMPILE_STATUS)) {
+                    console.error('Shader compile error:', this.gl.getShaderInfoLog(shader));
+                    return null;
+                }
+                
+                return shader;
+            }
+            
+            createGeometry() {
+                const vertices = new Float32Array([-1, -1, 1, -1, -1, 1, 1, 1]);
+                
+                this.vertexBuffer = this.gl.createBuffer();
+                this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.vertexBuffer);
+                this.gl.bufferData(this.gl.ARRAY_BUFFER, vertices, this.gl.STATIC_DRAW);
+                
+                const positionLocation = this.gl.getAttribLocation(this.program, 'a_position');
+                this.gl.enableVertexAttribArray(positionLocation);
+                this.gl.vertexAttribPointer(positionLocation, 2, this.gl.FLOAT, false, 0, 0);
+            }
+            
+            bindEvents() {
+                // Mouse tracking
+                document.addEventListener('mousemove', (e) => {
+                    this.mouseX = e.clientX / window.innerWidth;
+                    this.mouseY = 1.0 - (e.clientY / window.innerHeight);
+                });
+                
+                // Geometry selection
+                document.querySelectorAll('.geometry-btn').forEach(btn => {
+                    btn.addEventListener('click', () => {
+                        document.querySelectorAll('.geometry-btn').forEach(b => b.classList.remove('active'));
+                        btn.classList.add('active');
+                        this.currentGeometry = btn.dataset.geometry;
+                    });
+                });
+                
+                // Parameter controls
+                const controls = [
+                    { id: 'rotation4d', param: 'rotation4d', display: 'rotationValue' },
+                    { id: 'projection4d', param: 'projection4d', display: 'projectionValue' },
+                    { id: 'complexity', param: 'complexity', display: 'complexityValue' },
+                    { id: 'morphing', param: 'morphing', display: 'morphValue' },
+                    { id: 'precision', param: 'precision', display: 'precisionValue' }
+                ];
+                
+                controls.forEach(control => {
+                    const slider = document.getElementById(control.id);
+                    const display = document.getElementById(control.display);
+                    slider.addEventListener('input', (e) => {
+                        if (control.param === 'precision') {
+                            const value = parseInt(e.target.value);
+                            this.params[control.param] = value;
+                            const levels = ['MEDIUM', 'HIGH', 'HIGHP'];
+                            display.textContent = levels[value];
+                            // Recompile shaders with new precision
+                            this.createShaderPrograms();
+                        } else {
+                            const value = parseFloat(e.target.value);
+                            this.params[control.param] = value;
+                            display.textContent = value.toFixed(1);
+                        }
+                    });
+                });
+            }
+            
+            updateFrameworkStatus() {
+                // WebGL status
+                const webglStatus = document.getElementById('webglStatus');
+                const webglVersion = document.getElementById('webglVersion');
+                if (this.gl.getParameter(this.gl.VERSION).includes('WebGL 2.0')) {
+                    webglStatus.className = 'status-indicator status-optimal';
+                    webglVersion.textContent = 'WebGL 2.0';
+                } else {
+                    webglStatus.className = 'status-indicator status-good';
+                    webglVersion.textContent = 'WebGL 1.0';
+                }
+                
+                // Shader status
+                document.getElementById('shaderStatus').className = 'status-indicator status-optimal';
+                document.getElementById('shaderState').textContent = 'COMPILED';
+                
+                // Math engine status
+                document.getElementById('mathStatus').className = 'status-indicator status-optimal';
+                document.getElementById('mathState').textContent = 'ACTIVE';
+                
+                // Extension count
+                const activeExtensions = Object.values(this.extensions).filter(ext => ext !== null).length;
+                document.getElementById('extensionCount').textContent = activeExtensions;
+            }
+            
+            updatePerformanceMetrics() {
+                const currentTime = Date.now();
+                const deltaTime = currentTime - this.lastFrameTime;
+                
+                // Calculate FPS
+                this.frameCount++;
+                if (this.frameCount % 10 === 0) {
+                    this.performanceMetrics.fps = Math.round(1000 / deltaTime);
+                    this.performanceMetrics.frameTime = deltaTime.toFixed(1);
+                    
+                    document.getElementById('frameRate').textContent = this.performanceMetrics.fps.toFixed(1);
+                    document.getElementById('frameTime').textContent = this.performanceMetrics.frameTime;
+                    
+                    // Update optimization status
+                    const optimizationStatus = document.getElementById('optimizationStatus');
+                    const optimizationLevel = document.getElementById('optimizationLevel');
+                    
+                    if (this.performanceMetrics.fps >= 55) {
+                        optimizationStatus.className = 'status-indicator status-optimal';
+                        optimizationLevel.textContent = 'OPTIMAL';
+                    } else if (this.performanceMetrics.fps >= 45) {
+                        optimizationStatus.className = 'status-indicator status-good';
+                        optimizationLevel.textContent = 'GOOD';
+                    } else if (this.performanceMetrics.fps >= 30) {
+                        optimizationStatus.className = 'status-indicator status-warning';
+                        optimizationLevel.textContent = 'WARNING';
+                    } else {
+                        optimizationStatus.className = 'status-indicator status-critical';
+                        optimizationLevel.textContent = 'CRITICAL';
+                    }
+                }
+                
+                this.lastFrameTime = currentTime;
+            }
+            
+            render() {
+                this.time = (Date.now() - this.startTime) / 1000;
+                
+                this.updatePerformanceMetrics();
+                
+                this.gl.clear(this.gl.COLOR_BUFFER_BIT);
+                
+                // Get geometry type index
+                const geometryTypes = ['hypercube', 'tesseract', 'hyperprism', 'hypersphere', 'klein', 'mobius', 'torus4d', 'fractal4d'];
+                const geometryIndex = geometryTypes.indexOf(this.currentGeometry);
+                
+                // Set uniforms
+                this.gl.uniform1f(this.uniforms.time, this.time);
+                this.gl.uniform1f(this.uniforms.rotation4d, this.params.rotation4d);
+                this.gl.uniform1f(this.uniforms.projection4d, this.params.projection4d);
+                this.gl.uniform1f(this.uniforms.complexity, this.params.complexity);
+                this.gl.uniform1f(this.uniforms.morphing, this.params.morphing);
+                this.gl.uniform2f(this.uniforms.resolution, this.canvas.width, this.canvas.height);
+                this.gl.uniform2f(this.uniforms.mouse, this.mouseX || 0.5, this.mouseY || 0.5);
+                this.gl.uniform1i(this.uniforms.geometryType, geometryIndex);
+                
+                // Draw
+                this.gl.drawArrays(this.gl.TRIANGLE_STRIP, 0, 4);
+            }
+            
+            animate() {
+                this.render();
+                requestAnimationFrame(() => this.animate());
+            }
+        }
+        
+        // HUD toggle function
+        function toggleHUD(hudId) {
+            const hud = document.getElementById(hudId);
+            const toggle = hud.querySelector('.hud-toggle');
+            
+            if (hud.classList.contains('collapsed')) {
+                hud.classList.remove('collapsed');
+                toggle.textContent = '▲';
+            } else {
+                hud.classList.add('collapsed');
+                toggle.textContent = '▼';
+            }
+        }
+        
+        // Initialize HypercubeCore Framework
+        window.hypercubeCore = new HypercubeCoreFramework();
+    </script>
+</body>
+</html>
