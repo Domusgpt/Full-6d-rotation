@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>HypercubeCore – SO(4) MVP</title>
+    <style>
+      html, body {
+        margin: 0;
+        padding: 0;
+        height: 100%;
+        background: #050509;
+        color: #d7f9ff;
+        font-family: "Inter", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        overflow: hidden;
+      }
+      #app {
+        display: grid;
+        grid-template-columns: 320px 1fr;
+        height: 100%;
+      }
+      #control-panel {
+        background: rgba(12, 18, 32, 0.92);
+        border-right: 1px solid rgba(86, 180, 252, 0.25);
+        padding: 24px 20px;
+        display: flex;
+        flex-direction: column;
+        gap: 24px;
+      }
+      #control-panel h1 {
+        font-size: 1.25rem;
+        margin: 0;
+        color: #7fd2ff;
+      }
+      .control-group {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+      }
+      .control-group label {
+        font-size: 0.85rem;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        color: #9edcff;
+      }
+      .control-group input[type="range"] {
+        width: 100%;
+      }
+      canvas {
+        width: 100%;
+        height: 100%;
+        display: block;
+      }
+      #status {
+        font-size: 0.75rem;
+        color: rgba(211, 246, 255, 0.7);
+      }
+
+      #harmonic-status {
+        font-size: 0.7rem;
+        color: rgba(164, 226, 255, 0.65);
+        margin-top: -6px;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="app">
+      <aside id="control-panel">
+        <header>
+          <h1>SO(4) Rotation Bus</h1>
+          <p id="status">Initializing…</p>
+          <p id="harmonic-status">Spectral lattice pending…</p>
+        </header>
+        <section class="control-group">
+          <label for="geometry">Geometry</label>
+          <select id="geometry">
+            <option value="tesseract">Tesseract</option>
+            <option value="twentyFourCell">24-Cell</option>
+          </select>
+        </section>
+        <section id="rotation-controls"></section>
+        <section class="control-group">
+          <label for="projectionDepth">Projection Depth</label>
+          <input id="projectionDepth" type="range" min="1" max="8" step="0.1" value="3" />
+        </section>
+        <section class="control-group">
+          <label for="lineWidth">Line Width</label>
+          <input id="lineWidth" type="range" min="1" max="6" step="0.5" value="2" />
+        </section>
+        <section class="control-group">
+          <label for="matrixBlend">Matrix Cohesion</label>
+          <input id="matrixBlend" type="range" min="0" max="1" step="0.05" value="1" />
+        </section>
+        <section class="control-group">
+          <label for="dualBlend">Rotor Emphasis</label>
+          <input id="dualBlend" type="range" min="0" max="1" step="0.05" value="1" />
+        </section>
+      </aside>
+      <canvas id="gl-canvas"></canvas>
+    </div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
