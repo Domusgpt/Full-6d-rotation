@@ -231,8 +231,48 @@ vec3 spectralPalette(float parameter) {
   );
 }
 
+vec2 rotatePlane(vec2 plane, float angle) {
+  float c = cos(angle);
+  float s = sin(angle);
+  return vec2(
+    plane.x * c - plane.y * s,
+    plane.x * s + plane.y * c
+  );
+}
+
+vec4 applySixPlaneRotation(vec4 position, vec4 spatialAngles, vec4 hyperAngles) {
+  vec4 rotated = position;
+
+  vec2 pairXY = rotatePlane(rotated.xy, spatialAngles.x);
+  rotated.x = pairXY.x;
+  rotated.y = pairXY.y;
+
+  vec2 pairXZ = rotatePlane(vec2(rotated.x, rotated.z), spatialAngles.y);
+  rotated.x = pairXZ.x;
+  rotated.z = pairXZ.y;
+
+  vec2 pairYZ = rotatePlane(vec2(rotated.y, rotated.z), spatialAngles.z);
+  rotated.y = pairYZ.x;
+  rotated.z = pairYZ.y;
+
+  vec2 pairXW = rotatePlane(vec2(rotated.x, rotated.w), hyperAngles.x);
+  rotated.x = pairXW.x;
+  rotated.w = pairXW.y;
+
+  vec2 pairYW = rotatePlane(vec2(rotated.y, rotated.w), hyperAngles.y);
+  rotated.y = pairYW.x;
+  rotated.w = pairYW.y;
+
+  vec2 pairZW = rotatePlane(vec2(rotated.z, rotated.w), hyperAngles.z);
+  rotated.z = pairZW.x;
+  rotated.w = pairZW.y;
+
+  return rotated;
+}
+
 void main() {
-  vec4 rotated = rotationMatrix * a_position4d;
+  vec4 rotated = applySixPlaneRotation(a_position4d, spatial, hyperspatial);
+  vec4 matrixProjected = rotationMatrix * a_position4d;
   float depth = max(u_projectionDepth - rotated.w, 0.2);
   vec3 projected = rotated.xyz / depth;
   gl_Position = vec4(projected.xy, projected.z * 0.5, 1.0);
@@ -260,6 +300,7 @@ void main() {
   float isoEnergy = clamp(mix(energy, 1.0, chiralTone * 0.15), 0.0, 1.0);
 
   float geometricMix = dot(rotated, vec4(0.12, 0.18, 0.24, 0.3));
+  geometricMix += dot(matrixProjected, rotated) * 0.01;
   float harmonic = fract(harmonicBase + geometricMix * 0.12 + isoPhase * 0.33);
   vec3 baseColor = spectralPalette(fract(harmonic + hueShift));
   vec3 neutral = vec3(isoBrightness);
