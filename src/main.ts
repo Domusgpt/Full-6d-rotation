@@ -7,11 +7,14 @@ import { deriveRotationDynamics } from './core/rotationDynamics';
 import type { RotationDynamics } from './core/styleUniforms';
 import { ExtrumentSynth } from './audio/extrumentSynth';
 import { ImuStream } from './pipeline/imuStream';
+import type { ProjectionMode } from './core/projectionBridge';
 
 const canvas = document.getElementById('gl-canvas') as HTMLCanvasElement;
 const statusEl = document.getElementById('status') as HTMLParagraphElement;
 const geometrySelect = document.getElementById('geometry') as HTMLSelectElement;
+const projectionModeSelect = document.getElementById('projectionMode') as HTMLSelectElement;
 const projectionDepthSlider = document.getElementById('projectionDepth') as HTMLInputElement;
+const projectionDepthLabel = document.getElementById('projectionDepthLabel') as HTMLLabelElement;
 const lineWidthSlider = document.getElementById('lineWidth') as HTMLInputElement;
 const rotationControlsContainer = document.getElementById('rotation-controls') as HTMLDivElement;
 const styleIndicatorsContainer = document.getElementById('style-indicators') as HTMLDivElement;
@@ -24,7 +27,9 @@ if (
   !canvas ||
   !statusEl ||
   !geometrySelect ||
+  !projectionModeSelect ||
   !projectionDepthSlider ||
+  !projectionDepthLabel ||
   !lineWidthSlider ||
   !rotationControlsContainer ||
   !styleIndicatorsContainer ||
@@ -36,10 +41,23 @@ if (
   throw new Error('Required DOM nodes are missing');
 }
 
+let projectionMode = (projectionModeSelect.value as ProjectionMode) ?? 'perspective';
+const projectionControlValues: Record<ProjectionMode, number> = {
+  perspective: Number(projectionDepthSlider.value),
+  stereographic: 1.0,
+  orthographic: 0.8
+};
+
 const core = new HypercubeCore(canvas, {
-  projectionDepth: Number(projectionDepthSlider.value),
-  lineWidth: Number(lineWidthSlider.value)
+  projectionDepth: projectionControlValues.perspective,
+  lineWidth: Number(lineWidthSlider.value),
+  projectionMode
 });
+initializeProjectionControls();
+core.setProjectionControl(projectionControlValues[projectionMode]);
+if (projectionMode === 'perspective') {
+  core.setProjectionDepth(projectionControlValues.perspective);
+}
 
 const rotationBus = new RotationBus();
 const synth = new ExtrumentSynth();
@@ -115,7 +133,23 @@ geometrySelect.addEventListener('change', (event) => {
 
 projectionDepthSlider.addEventListener('input', (event) => {
   const value = Number((event.target as HTMLInputElement).value);
-  core.setProjectionDepth(value);
+  projectionControlValues[projectionMode] = value;
+  if (projectionMode === 'perspective') {
+    core.setProjectionDepth(value);
+  }
+  core.setProjectionControl(value);
+});
+
+projectionModeSelect.addEventListener('change', (event) => {
+  projectionMode = (event.target as HTMLSelectElement).value as ProjectionMode;
+  core.setProjectionMode(projectionMode);
+  updateProjectionControlUi(projectionMode);
+  const controlValue = projectionControlValues[projectionMode];
+  projectionDepthSlider.value = controlValue.toString();
+  if (projectionMode === 'perspective') {
+    core.setProjectionDepth(controlValue);
+  }
+  core.setProjectionControl(controlValue);
 });
 
 lineWidthSlider.addEventListener('input', (event) => {
@@ -285,6 +319,34 @@ function startSyntheticRotation(autoState: RotationAngles, onUpdate: (timestamp:
 
 function updateStatus(dynamics: RotationDynamics) {
   statusEl.textContent = `${statusBase} · source ${rotationSource} · energy ${(dynamics.energy * 100).toFixed(0)}% · chaos ${(dynamics.chaos * 100).toFixed(0)}%`;
+}
+
+function initializeProjectionControls() {
+  updateProjectionControlUi(projectionMode);
+  projectionDepthSlider.value = projectionControlValues[projectionMode].toString();
+}
+
+function updateProjectionControlUi(mode: ProjectionMode) {
+  switch (mode) {
+    case 'perspective':
+      projectionDepthLabel.textContent = 'Projection Depth';
+      projectionDepthSlider.min = '1';
+      projectionDepthSlider.max = '8';
+      projectionDepthSlider.step = '0.1';
+      break;
+    case 'stereographic':
+      projectionDepthLabel.textContent = 'Stereographic Scale';
+      projectionDepthSlider.min = '0.2';
+      projectionDepthSlider.max = '4';
+      projectionDepthSlider.step = '0.05';
+      break;
+    case 'orthographic':
+      projectionDepthLabel.textContent = 'Orthographic Scale';
+      projectionDepthSlider.min = '0.2';
+      projectionDepthSlider.max = '3';
+      projectionDepthSlider.step = '0.05';
+      break;
+  }
 }
 
 function createStyleIndicators(container: HTMLDivElement) {

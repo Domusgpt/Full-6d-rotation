@@ -130,9 +130,17 @@
             <option value="twentyFourCell">24-Cell</option>
           </select>
         </section>
+        <section class="control-group">
+          <label for="projectionMode">Projection Mode</label>
+          <select id="projectionMode">
+            <option value="perspective">Perspective</option>
+            <option value="stereographic">Stereographic</option>
+            <option value="orthographic">Orthographic</option>
+          </select>
+        </section>
         <section id="rotation-controls"></section>
         <section class="control-group">
-          <label for="projectionDepth">Projection Depth</label>
+          <label for="projectionDepth" id="projectionDepthLabel">Projection Depth</label>
           <input id="projectionDepth" type="range" min="1" max="8" step="0.1" value="3" />
         </section>
         <section class="control-group">

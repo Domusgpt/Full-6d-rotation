@@ -4,11 +4,21 @@ import {
   type RotationAngles
 } from './rotationUniforms';
 import { StyleUniformBuffer, type RotationDynamics, ZERO_DYNAMICS } from './styleUniforms';
+import {
+  buildProjectionUniforms,
+  DEFAULT_PROJECTION_PARAMETERS,
+  projectionModeToIndex,
+  type ProjectionMode,
+  type ProjectionParameters,
+  updateProjectionParameter
+} from './projectionBridge';
 import type { GeometryData } from '../geometry/types';
 
 export interface HypercubeCoreOptions {
   projectionDepth?: number;
   lineWidth?: number;
+  projectionMode?: ProjectionMode;
+  projectionParameters?: Partial<ProjectionParameters>;
 }
 
 export class HypercubeCore {
@@ -19,6 +29,12 @@ export class HypercubeCore {
   private vao: WebGLVertexArrayObject | null = null;
   private indexCount = 0;
   private projectionDepth = 3;
+  private projectionMode: ProjectionMode = 'perspective';
+  private projectionParameters: ProjectionParameters = { ...DEFAULT_PROJECTION_PARAMETERS };
+  private readonly projectionUniformData = new Float32Array(4);
+  private projectionUniformMode = 0;
+  private projectionParamsDirty = true;
+  private projectionUploadDirty = true;
   private lineWidth = 1.5;
   private dynamicLineScale = 1;
   private lastTimestamp = 0;
@@ -32,6 +48,8 @@ export class HypercubeCore {
     projectionDepth: WebGLUniformLocation;
     lineWidth: WebGLUniformLocation;
     time: WebGLUniformLocation;
+    projectionMode: WebGLUniformLocation;
+    projectionParams: WebGLUniformLocation;
   };
 
   constructor(private readonly canvas: HTMLCanvasElement, options: HypercubeCoreOptions = {}) {
@@ -43,6 +61,13 @@ export class HypercubeCore {
     this.rotationBuffer = new RotationUniformBuffer(gl);
     this.styleBuffer = new StyleUniformBuffer(gl);
     this.projectionDepth = options.projectionDepth ?? this.projectionDepth;
+    this.projectionMode = options.projectionMode ?? this.projectionMode;
+    this.projectionParameters = {
+      ...DEFAULT_PROJECTION_PARAMETERS,
+      depth: this.projectionDepth,
+      ...(options.projectionParameters ?? {})
+    };
+    this.projectionUniformMode = projectionModeToIndex(this.projectionMode);
     this.lineWidth = options.lineWidth ?? this.lineWidth;
     this.program = this.createProgram();
     this.rotationBuffer.bind(this.program);
@@ -51,16 +76,51 @@ export class HypercubeCore {
     this.styleBuffer.update(ZERO_DYNAMICS);
     this.uniforms = this.getUniformLocations();
     this.configureContext();
+    this.projectionParamsDirty = true;
+    this.projectionUploadDirty = true;
     this.resize();
     window.addEventListener('resize', () => this.resize());
   }
 
   setProjectionDepth(depth: number) {
     this.projectionDepth = depth;
+    this.projectionParameters = {
+      ...this.projectionParameters,
+      depth: Math.max(depth, this.projectionParameters.epsilon)
+    };
+    this.projectionParamsDirty = true;
+    this.projectionUploadDirty = true;
   }
 
   setLineWidth(width: number) {
     this.lineWidth = width;
+  }
+
+  setProjectionMode(mode: ProjectionMode) {
+    if (this.projectionMode === mode) return;
+    this.projectionMode = mode;
+    this.projectionUniformMode = projectionModeToIndex(mode);
+    this.projectionParamsDirty = true;
+    this.projectionUploadDirty = true;
+  }
+
+  setProjectionControl(value: number) {
+    this.projectionParameters = updateProjectionParameter(
+      this.projectionMode,
+      this.projectionParameters,
+      value
+    );
+    this.projectionParamsDirty = true;
+    this.projectionUploadDirty = true;
+  }
+
+  configureProjection(parameters: Partial<ProjectionParameters>) {
+    this.projectionParameters = {
+      ...this.projectionParameters,
+      ...parameters
+    };
+    this.projectionParamsDirty = true;
+    this.projectionUploadDirty = true;
   }
 
   setGeometry(geometry: GeometryData) {
@@ -131,11 +191,17 @@ export class HypercubeCore {
     gl.bindVertexArray(this.vao);
 
     this.flushUniformQueues();
+    this.syncProjectionUniforms();
 
     gl.uniform1f(this.uniforms.projectionDepth, this.projectionDepth);
     const modulatedLineWidth = this.lineWidth * this.dynamicLineScale;
     gl.uniform1f(this.uniforms.lineWidth, modulatedLineWidth);
     gl.uniform1f(this.uniforms.time, time);
+    if (this.projectionUploadDirty) {
+      gl.uniform1i(this.uniforms.projectionMode, this.projectionUniformMode);
+      gl.uniform4fv(this.uniforms.projectionParams, this.projectionUniformData);
+      this.projectionUploadDirty = false;
+    }
     gl.lineWidth(Math.max(1, Math.min(modulatedLineWidth, 8)));
 
     gl.drawElements(gl.LINES, this.indexCount, gl.UNSIGNED_SHORT, 0);
@@ -150,6 +216,19 @@ export class HypercubeCore {
     if (this.dynamicsDirty) {
       this.styleBuffer.update(this.stagedDynamics);
       this.dynamicsDirty = false;
+    }
+  }
+
+  private syncProjectionUniforms() {
+    if (this.projectionParamsDirty) {
+      const uniforms = buildProjectionUniforms(
+        this.projectionMode,
+        this.projectionParameters,
+        this.projectionUniformData
+      );
+      this.projectionUniformMode = uniforms.mode;
+      this.projectionParamsDirty = false;
+      this.projectionUploadDirty = true;
     }
   }
 
@@ -209,10 +288,12 @@ export class HypercubeCore {
     const projectionDepth = this.gl.getUniformLocation(this.program, 'u_projectionDepth');
     const lineWidth = this.gl.getUniformLocation(this.program, 'u_lineWidth');
     const time = this.gl.getUniformLocation(this.program, 'u_time');
-    if (!projectionDepth || !lineWidth || !time) {
+    const projectionMode = this.gl.getUniformLocation(this.program, 'u_projectionMode');
+    const projectionParams = this.gl.getUniformLocation(this.program, 'u_projectionParams');
+    if (!projectionDepth || !lineWidth || !time || !projectionMode || !projectionParams) {
       throw new Error('Failed to resolve uniform locations');
     }
-    return { projectionDepth, lineWidth, time };
+    return { projectionDepth, lineWidth, time, projectionMode, projectionParams };
   }
 }
 
@@ -256,6 +337,8 @@ layout(std140) uniform StyleUniforms {
 uniform float u_projectionDepth;
 uniform float u_lineWidth;
 uniform float u_time;
+uniform int u_projectionMode;
+uniform vec4 u_projectionParams;
 
 out vec3 v_color;
 out float v_depth;
@@ -314,11 +397,26 @@ vec4 applySixPlaneRotation(vec4 position, vec4 spatialAngles, vec4 hyperAngles) 
   return rotated;
 }
 
+vec3 projectTo3D(vec4 rotated, out float depthValue) {
+  if (u_projectionMode == 0) {
+    float depth = max(u_projectionParams.x - rotated.w, u_projectionParams.y);
+    depthValue = depth;
+    return rotated.xyz / depth;
+  }
+  if (u_projectionMode == 1) {
+    float denom = max(u_projectionParams.x - rotated.w, u_projectionParams.y);
+    depthValue = denom;
+    return rotated.xyz / denom * u_projectionParams.z;
+  }
+  depthValue = max(u_projectionDepth, 0.2);
+  return rotated.xyz * u_projectionParams.w;
+}
+
 void main() {
   vec4 rotated = applySixPlaneRotation(a_position4d, spatial, hyperspatial);
   vec4 matrixProjected = rotationMatrix * a_position4d;
-  float depth = max(u_projectionDepth - rotated.w, 0.2);
-  vec3 projected = rotated.xyz / depth;
+  float depth;
+  vec3 projected = projectTo3D(rotated, depth);
   gl_Position = vec4(projected.xy, projected.z * 0.5, 1.0);
   gl_PointSize = 4.0;
 
