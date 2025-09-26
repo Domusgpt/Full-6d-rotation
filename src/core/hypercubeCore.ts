@@ -328,6 +328,8 @@ layout(std140) uniform RotationUniforms {
   vec4 spatialCos;
   vec4 hyperspatialSin;
   vec4 hyperspatialCos;
+  vec4 spatialMagnitudes;
+  vec4 hyperspatialMagnitudes;
   mat4 rotationMatrix;
   vec4 quatLeft;
   vec4 quatRight;
@@ -437,16 +439,21 @@ void main() {
   float chiralTone = smoothstep(0.0, 1.4, clamp(chiralSpread, 0.0, 2.0));
 
   float rotationMomentum = length(spatialAngles.xyz) + length(hyperspatialAngles.xyz);
-  float hueShift = chaos * 0.12 + energy * 0.08 + (isoPhase - 0.5) * 0.18 + rotationMomentum * 0.015;
+  float spatialMix = dot(spatialMagnitudes.xyz, vec3(0.3333));
+  float hyperMix = dot(hyperspatialMagnitudes.xyz, vec3(0.3333));
+  float planeBalance = clamp(spatialMix - hyperMix, -1.0, 1.0);
+  float planeEnergy = clamp(spatialMix + hyperMix, 0.0, 2.0);
+
+  float hueShift = chaos * 0.12 + energy * 0.08 + (isoPhase - 0.5) * 0.18 + rotationMomentum * 0.015 + planeBalance * 0.12;
   float isoSaturation = clamp(saturation + (isoPhase - 0.5) * 0.22, 0.0, 1.0);
-  float isoBrightness = clamp(brightness + (1.0 - chiralTone) * 0.12, 0.0, 1.0);
-  float isoThickness = thickness * (1.0 + chiralTone * 0.45);
-  float isoChaos = clamp(chaos + chiralTone * 0.35, 0.0, 1.0);
-  float isoEnergy = clamp(mix(energy, 1.0, chiralTone * 0.15), 0.0, 1.0);
+  float isoBrightness = clamp(brightness + (1.0 - chiralTone) * 0.12 + planeEnergy * 0.08, 0.0, 1.0);
+  float isoThickness = thickness * (1.0 + chiralTone * 0.45 + planeEnergy * 0.25);
+  float isoChaos = clamp(chaos + chiralTone * 0.35 + planeBalance * 0.2, 0.0, 1.0);
+  float isoEnergy = clamp(mix(energy, 1.0, chiralTone * 0.15) + planeEnergy * 0.1, 0.0, 1.0);
 
   float geometricMix = dot(rotated, vec4(0.12, 0.18, 0.24, 0.3));
   geometricMix += dot(matrixProjected, rotated) * 0.01;
-  float harmonic = fract(harmonicBase + geometricMix * 0.12 + isoPhase * 0.33);
+  float harmonic = fract(harmonicBase + geometricMix * 0.12 + isoPhase * 0.33 + planeBalance * 0.2);
   vec3 baseColor = spectralPalette(fract(harmonic + hueShift));
   vec3 neutral = vec3(isoBrightness);
   float contour = 0.35 + 0.65 * smoothstep(0.0, u_projectionDepth, depth);

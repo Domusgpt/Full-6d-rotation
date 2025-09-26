@@ -14,7 +14,7 @@ const ANGLES = {
 
 describe('packRotationUniformData', () => {
   it('writes angles, matrix, and dual quaternions into the target buffer', () => {
-    const target = new Float32Array(48);
+    const target = new Float32Array(56);
     const matrixOut = mat4.create();
     const leftQuat = new Float32Array(4);
     const rightQuat = new Float32Array(4);
@@ -42,20 +42,27 @@ describe('packRotationUniformData', () => {
     expect(target[21]).toBeCloseTo(Math.cos(ANGLES.yw), 1e-6);
     expect(target[22]).toBeCloseTo(Math.cos(ANGLES.zw), 1e-6);
 
+    expect(target[24]).toBeCloseTo(Math.abs(ANGLES.xy) / Math.PI, 1e-6);
+    expect(target[25]).toBeCloseTo(Math.abs(ANGLES.xz) / Math.PI, 1e-6);
+    expect(target[26]).toBeCloseTo(Math.abs(ANGLES.yz) / Math.PI, 1e-6);
+    expect(target[28]).toBeCloseTo(Math.abs(ANGLES.xw) / Math.PI, 1e-6);
+    expect(target[29]).toBeCloseTo(Math.abs(ANGLES.yw) / Math.PI, 1e-6);
+    expect(target[30]).toBeCloseTo(Math.abs(ANGLES.zw) / Math.PI, 1e-6);
+
     const expectedMatrix = rotationMatrixFromAngles(ANGLES);
     for (let i = 0; i < 16; i += 1) {
-      expect(target[24 + i]).toBeCloseTo(expectedMatrix[i], 1e-5);
+      expect(target[32 + i]).toBeCloseTo(expectedMatrix[i], 1e-5);
     }
 
     const expectedDual = composeDualQuaternion(ANGLES);
     for (let i = 0; i < 4; i += 1) {
-      expect(target[40 + i]).toBeCloseTo(expectedDual.left[i], 1e-5);
-      expect(target[44 + i]).toBeCloseTo(expectedDual.right[i], 1e-5);
+      expect(target[48 + i]).toBeCloseTo(expectedDual.left[i], 1e-5);
+      expect(target[52 + i]).toBeCloseTo(expectedDual.right[i], 1e-5);
     }
   });
 
   it('handles zero rotation without producing NaNs', () => {
-    const target = new Float32Array(48);
+    const target = new Float32Array(56);
     const matrixOut = mat4.create();
     const leftQuat = new Float32Array(4);
     const rightQuat = new Float32Array(4);

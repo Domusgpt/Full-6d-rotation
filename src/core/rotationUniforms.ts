@@ -20,11 +20,12 @@ export interface RotationDualQuaternion {
   right: Float32Array;
 }
 
-const FLOATS_PER_BLOCK = 48; // 6 vec4 blocks + mat4 + 2 vec4 quaternions
+const FLOATS_PER_BLOCK = 56; // 8 vec4 blocks + mat4 + 2 vec4 quaternions
 const BLOCK_SIZE_BYTES = FLOATS_PER_BLOCK * 4;
-const MATRIX_OFFSET = 24;
-const LEFT_QUAT_OFFSET = 40;
-const RIGHT_QUAT_OFFSET = 44;
+const MATRIX_OFFSET = 32;
+const LEFT_QUAT_OFFSET = 48;
+const RIGHT_QUAT_OFFSET = 52;
+const MAX_PLANE_ANGLE = Math.PI;
 
 export function packRotationUniformData(
   angles: RotationAngles,
@@ -72,6 +73,22 @@ export function packRotationUniformData(
   target[21] = cosYW;
   target[22] = cosZW;
   target[23] = 0.0;
+
+  const normXY = Math.min(Math.abs(angles.xy) / MAX_PLANE_ANGLE, 1);
+  const normXZ = Math.min(Math.abs(angles.xz) / MAX_PLANE_ANGLE, 1);
+  const normYZ = Math.min(Math.abs(angles.yz) / MAX_PLANE_ANGLE, 1);
+  const normXW = Math.min(Math.abs(angles.xw) / MAX_PLANE_ANGLE, 1);
+  const normYW = Math.min(Math.abs(angles.yw) / MAX_PLANE_ANGLE, 1);
+  const normZW = Math.min(Math.abs(angles.zw) / MAX_PLANE_ANGLE, 1);
+
+  target[24] = normXY;
+  target[25] = normXZ;
+  target[26] = normYZ;
+  target[27] = 0.0;
+  target[28] = normXW;
+  target[29] = normYW;
+  target[30] = normZW;
+  target[31] = 0.0;
 
   const matrix = rotationMatrixFromAngles(angles, matrixOut);
   target.set(matrix, MATRIX_OFFSET);
