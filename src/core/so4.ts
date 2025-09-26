@@ -158,9 +158,15 @@ export function composeDualQuaternion(
   leftOut?: Float32Array,
   rightOut?: Float32Array
 ): RotationDualQuaternion {
-  const { xy, xz, yz, xw, yw, zw } = angles;
-  const left = quaternionFromEuler(xy, xz, yz, leftOut);
-  const right = quaternionFromEuler(xw, yw, zw, rightOut);
+  const matrix = rotationMatrixFromAngles(angles, scratchMatrix);
+  const columns = extractColumns(matrix);
+
+  const left = leftOut ?? new Float32Array(4);
+  const right = rightOut ?? new Float32Array(4);
+  const initialRight = quaternionFromEuler(angles.xw, angles.yw, angles.zw, scratchQuaternion0);
+
+  solveDualQuaternionPair(columns, initialRight, left, right);
+
   return { left, right };
 }
 
@@ -206,6 +212,232 @@ function quaternionFromEuler(
 const scratchQuaternion0 = new Float32Array(4);
 const scratchQuaternion1 = new Float32Array(4);
 const scratchQuaternion2 = new Float32Array(4);
+const scratchMatrix = mat4.create();
+const columnScratch = [
+  vec4.create(),
+  vec4.create(),
+  vec4.create(),
+  vec4.create()
+];
+const vectorScratch0 = vec4.create();
+const vectorScratch1 = vec4.create();
+const vectorScratch2 = vec4.create();
+const vectorScratch3 = vec4.create();
+
+const RIGHT_TRANSFORMS: readonly number[][][] = [
+  [
+    [0, 0, 0, 1],
+    [0, 0, -1, 0],
+    [0, 1, 0, 0],
+    [-1, 0, 0, 0]
+  ],
+  [
+    [0, 0, 1, 0],
+    [0, 0, 0, 1],
+    [-1, 0, 0, 0],
+    [0, -1, 0, 0]
+  ],
+  [
+    [0, -1, 0, 0],
+    [1, 0, 0, 0],
+    [0, 0, 0, 1],
+    [0, 0, -1, 0]
+  ],
+  [
+    [1, 0, 0, 0],
+    [0, 1, 0, 0],
+    [0, 0, 1, 0],
+    [0, 0, 0, 1]
+  ]
+];
+
+function solveDualQuaternionPair(
+  columns: readonly Float32Array[],
+  initialRight: Float32Array,
+  leftOut: Float32Array,
+  rightOut: Float32Array
+) {
+  const conjRight = quaternionNormalize(conjugateQuaternion(initialRight, scratchQuaternion1));
+  const left = leftOut;
+  const u = scratchQuaternion2;
+  u.set(conjRight);
+
+  for (let i = 0; i < 3; i += 1) {
+    solveLeftQuaternion(columns, u, left);
+    quaternionNormalize(left);
+    solveConjugateRightGivenLeft(columns, left, u);
+    quaternionNormalize(u);
+  }
+
+  if (left[3] < 0) {
+    scaleQuaternion(left, -1);
+    scaleQuaternion(u, -1);
+  }
+
+  conjugateQuaternion(u, rightOut);
+  quaternionNormalize(rightOut);
+}
+
+function extractColumns(matrix: mat4): readonly Float32Array[] {
+  for (let i = 0; i < 4; i += 1) {
+    const column = columnScratch[i];
+    column[0] = matrix[i * 4 + 0];
+    column[1] = matrix[i * 4 + 1];
+    column[2] = matrix[i * 4 + 2];
+    column[3] = matrix[i * 4 + 3];
+  }
+  return columnScratch;
+}
+
+function solveLeftQuaternion(
+  columns: readonly Float32Array[],
+  conjugateRight: Float32Array,
+  out: Float32Array
+): Float32Array {
+  const rows: number[][] = [];
+  const rhs: number[] = [];
+
+  for (let i = 0; i < 4; i += 1) {
+    const v = transformRows(RIGHT_TRANSFORMS[i], conjugateRight, vectorScratch0);
+    addLeftRows(v, columns[i], rows, rhs);
+  }
+
+  return solveLeastSquares4(rows, rhs, out);
+}
+
+function solveConjugateRightGivenLeft(
+  columns: readonly Float32Array[],
+  left: Float32Array,
+  out: Float32Array
+): Float32Array {
+  const rows: number[][] = [];
+  const rhs: number[] = [];
+
+  for (let i = 0; i < 4; i += 1) {
+    const transform = RIGHT_TRANSFORMS[i];
+    addRightRows(left, transform, columns[i], rows, rhs);
+  }
+
+  return solveLeastSquares4(rows, rhs, out);
+}
+
+function addLeftRows(
+  v: Float32Array,
+  target: Float32Array,
+  rows: number[][],
+  rhs: number[]
+) {
+  rows.push([v[3], v[2], -v[1], v[0]]);
+  rhs.push(target[0]);
+  rows.push([-v[2], v[3], v[0], v[1]]);
+  rhs.push(target[1]);
+  rows.push([v[1], -v[0], v[3], v[2]]);
+  rhs.push(target[2]);
+  rows.push([-v[0], -v[1], -v[2], v[3]]);
+  rhs.push(target[3]);
+}
+
+function addRightRows(
+  left: Float32Array,
+  transformRows: readonly number[][],
+  target: Float32Array,
+  rows: number[][],
+  rhs: number[]
+) {
+  const ax = left[0];
+  const ay = left[1];
+  const az = left[2];
+  const aw = left[3];
+
+  const rowX = combineRows(transformRows, aw, -az, ay, ax, vectorScratch1);
+  const rowY = combineRows(transformRows, az, aw, -ax, ay, vectorScratch2);
+  const rowZ = combineRows(transformRows, -ay, ax, aw, az, vectorScratch3);
+  const rowW = combineRows(transformRows, -ax, -ay, -az, aw, vectorScratch0);
+
+  rows.push([...rowX]);
+  rhs.push(target[0]);
+  rows.push([...rowY]);
+  rhs.push(target[1]);
+  rows.push([...rowZ]);
+  rhs.push(target[2]);
+  rows.push([...rowW]);
+  rhs.push(target[3]);
+}
+
+function combineRows(
+  rows: readonly number[][],
+  c0: number,
+  c1: number,
+  c2: number,
+  c3: number,
+  out: Float32Array
+): Float32Array {
+  for (let i = 0; i < 4; i += 1) {
+    out[i] = rows[0][i] * c0 + rows[1][i] * c1 + rows[2][i] * c2 + rows[3][i] * c3;
+  }
+  return out;
+}
+
+function solveLeastSquares4(
+  rows: number[][],
+  rhs: number[],
+  out: Float32Array
+): Float32Array {
+  const ata = new Float32Array(16);
+  const atb = new Float32Array(4);
+
+  for (let i = 0; i < rows.length; i += 1) {
+    const row = rows[i];
+    const value = rhs[i];
+    for (let x = 0; x < 4; x += 1) {
+      atb[x] += row[x] * value;
+      for (let y = 0; y < 4; y += 1) {
+        ata[x + y * 4] += row[x] * row[y];
+      }
+    }
+  }
+
+  const inv = mat4.create();
+  if (!mat4.invert(inv, ata)) {
+    out[0] = 0;
+    out[1] = 0;
+    out[2] = 0;
+    out[3] = 1;
+    return out;
+  }
+
+  for (let i = 0; i < 4; i += 1) {
+    let sum = 0;
+    for (let j = 0; j < 4; j += 1) {
+      sum += inv[i + j * 4] * atb[j];
+    }
+    out[i] = sum;
+  }
+
+  return out;
+}
+
+function transformRows(
+  rows: readonly number[][],
+  vector: Float32Array,
+  out: Float32Array
+): Float32Array {
+  for (let i = 0; i < 4; i += 1) {
+    out[i] =
+      rows[i][0] * vector[0] +
+      rows[i][1] * vector[1] +
+      rows[i][2] * vector[2] +
+      rows[i][3] * vector[3];
+  }
+  return out;
+}
+
+function scaleQuaternion(quaternion: Float32Array, scale: number) {
+  quaternion[0] *= scale;
+  quaternion[1] *= scale;
+  quaternion[2] *= scale;
+  quaternion[3] *= scale;
+}
 
 function quaternionFromVector(vector: vec4, out: Float32Array) {
   out[0] = vector[0];

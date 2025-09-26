@@ -12,6 +12,10 @@ import {
   type ProjectionParameters,
   updateProjectionParameter
 } from './projectionBridge';
+import {
+  validateRotationSolvers,
+  type RotationValidationResult
+} from './rotationValidator';
 import type { GeometryData } from '../geometry/types';
 
 export type RotationSolver = 'sequential' | 'matrix' | 'dualQuaternion';
@@ -28,6 +32,13 @@ export interface HypercubeCoreOptions {
   projectionMode?: ProjectionMode;
   projectionParameters?: Partial<ProjectionParameters>;
   rotationSolver?: RotationSolver;
+  /**
+   * When enabled, each incoming rotation snapshot is checked to ensure the
+   * sequential, matrix, and dual-quaternion solvers remain numerically
+   * consistent. Divergence is logged to the console together with the maximum
+   * deviation that was detected.
+   */
+  rotationValidation?: boolean;
 }
 
 export class HypercubeCore {
@@ -57,6 +68,8 @@ export class HypercubeCore {
   private rotationSolver: RotationSolver = 'sequential';
   private rotationSolverIndex = SOLVER_INDEX.sequential;
   private rotationSolverDirty = true;
+  private readonly rotationValidation: boolean;
+  private lastRotationValidation: RotationValidationResult | null = null;
 
   private uniforms!: {
     projectionDepth: WebGLUniformLocation;
@@ -90,6 +103,7 @@ export class HypercubeCore {
       this.rotationSolver = options.rotationSolver;
       this.rotationSolverIndex = SOLVER_INDEX[this.rotationSolver];
     }
+    this.rotationValidation = options.rotationValidation ?? false;
     this.program = this.createProgram();
     this.rotationBuffer.bind(this.program);
     this.styleBuffer.bind(this.program);
@@ -179,6 +193,13 @@ export class HypercubeCore {
   }
 
   updateRotation(snapshot: RotationSnapshot) {
+    if (this.rotationValidation) {
+      const validation = validateRotationSolvers(snapshot, 5e-3);
+      this.lastRotationValidation = validation;
+      if (!validation.ok) {
+        console.warn('HypercubeCore rotation solver divergence detected', validation);
+      }
+    }
     copyRotationSnapshot(this.stagedRotation, snapshot);
     this.rotationDirty = true;
   }
@@ -194,6 +215,13 @@ export class HypercubeCore {
     this.rotationSolver = solver;
     this.rotationSolverIndex = SOLVER_INDEX[solver];
     this.rotationSolverDirty = true;
+  }
+
+  getRotationValidation(): RotationValidationResult | null {
+    if (!this.rotationValidation) {
+      return null;
+    }
+    return this.lastRotationValidation;
   }
 
   start() {
