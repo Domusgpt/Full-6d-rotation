@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { RotationSnapshot } from '../core/rotationUniforms';
-import { SIX_PLANE_KEYS } from '../core/sixPlaneOrbit';
+import { SIX_PLANE_KEYS } from '../core/rotationPlanes';
 import { createConfidenceFloorFilter, createSmoothingFilter } from './parserFilters';
 
 function createSnapshot(value: number): RotationSnapshot {

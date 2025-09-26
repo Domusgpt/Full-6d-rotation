@@ -1,6 +1,7 @@
 import { HypercubeCore } from './core/hypercubeCore';
 import { ZERO_ROTATION, type RotationAngles, type RotationSnapshot } from './core/rotationUniforms';
-import { createHarmonicOrbit, SIX_PLANE_KEYS } from './core/sixPlaneOrbit';
+import { createHarmonicOrbit } from './core/sixPlaneOrbit';
+import { SIX_PLANE_KEYS } from './core/rotationPlanes';
 import { getGeometry, type GeometryId } from './pipeline/geometryCatalog';
 import { RotationBus } from './pipeline/rotationBus';
 import { deriveRotationDynamics } from './core/rotationDynamics';

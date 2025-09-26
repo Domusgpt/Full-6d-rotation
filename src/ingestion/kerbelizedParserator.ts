@@ -1,4 +1,4 @@
-import { SIX_PLANE_KEYS } from '../core/sixPlaneOrbit';
+import { SIX_PLANE_KEYS, writeRotationChannels } from '../core/rotationPlanes';
 import type { RotationSnapshot } from '../core/rotationUniforms';
 import { DEFAULT_GAINS, type ImuPacket, type MappingGains } from './imuMapper';
 import { So4ImuIntegrator } from './so4Integrator';
@@ -139,9 +139,7 @@ export class KerbelizedParserator {
   }
 
   private createFrame(rotation: RotationSnapshot): ParserFrame {
-    for (let i = 0; i < SIX_PLANE_KEYS.length; i += 1) {
-      this.channelBuffer[i] = rotation[SIX_PLANE_KEYS[i]];
-    }
+    writeRotationChannels(this.channelBuffer, rotation);
     return {
       frameId: this.frameId++,
       timestamp: rotation.timestamp,

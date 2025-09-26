@@ -1,7 +1,9 @@
 import type { RotationAngles } from './rotationUniforms';
+import { SIX_PLANE_KEYS } from './rotationPlanes';
+
+export { SIX_PLANE_KEYS } from './rotationPlanes';
 
 const TAU = Math.PI * 2;
-export const SIX_PLANE_KEYS: ReadonlyArray<keyof RotationAngles> = ['xy', 'xz', 'yz', 'xw', 'yw', 'zw'];
 
 export interface OrbitPlane {
   plane: keyof RotationAngles;

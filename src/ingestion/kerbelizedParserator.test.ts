@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { RotationSnapshot } from '../core/rotationUniforms';
-import { SIX_PLANE_KEYS } from '../core/sixPlaneOrbit';
+import { SIX_PLANE_KEYS } from '../core/rotationPlanes';
 import { createConfidenceFloorFilter } from './parserFilters';
 import { KerbelizedParserator } from './kerbelizedParserator';
 import type { ImuPacket } from './imuMapper';

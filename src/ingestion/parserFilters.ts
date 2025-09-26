@@ -1,5 +1,5 @@
 import type { RotationAngles, RotationSnapshot } from '../core/rotationUniforms';
-import { SIX_PLANE_KEYS } from '../core/sixPlaneOrbit';
+import { SIX_PLANE_KEYS, writeRotationChannels } from '../core/rotationPlanes';
 
 export interface ParserFrame {
   readonly frameId: number;
@@ -83,9 +83,7 @@ export function createSmoothingFilter(options: SmoothingFilterOptions = {}): Sta
       }
     }
 
-    for (let i = 0; i < SIX_PLANE_KEYS.length; i += 1) {
-      frame.channels[i] = blended[SIX_PLANE_KEYS[i]];
-    }
+    writeRotationChannels(frame.channels, blended);
 
     blended.confidence = frame.confidence;
     const blendedConfidence = frame.confidence * 0.85 + previous.confidence * 0.15;
