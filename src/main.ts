@@ -1,7 +1,7 @@
 import { HypercubeCore, type RotationSolver } from './core/hypercubeCore';
-import { ZERO_ROTATION, type RotationAngles, type RotationSnapshot } from './core/rotationUniforms';
+import { ZERO_ROTATION, ZERO_SNAPSHOT, type RotationAngles, type RotationSnapshot } from './core/rotationUniforms';
 import { createHarmonicOrbit } from './core/sixPlaneOrbit';
-import { SIX_PLANE_KEYS } from './core/rotationPlanes';
+import { SIX_PLANE_KEYS, type RotationPlane } from './core/rotationPlanes';
 import { getGeometry, type GeometryId } from './pipeline/geometryCatalog';
 import { RotationBus } from './pipeline/rotationBus';
 import { deriveRotationDynamics } from './core/rotationDynamics';
@@ -23,6 +23,7 @@ const projectionDepthLabel = document.getElementById('projectionDepthLabel') as 
 const lineWidthSlider = document.getElementById('lineWidth') as HTMLInputElement;
 const rotationControlsContainer = document.getElementById('rotation-controls') as HTMLDivElement;
 const styleIndicatorsContainer = document.getElementById('style-indicators') as HTMLDivElement;
+const planeIndicatorsContainer = document.getElementById('plane-indicators') as HTMLDivElement;
 const audioToggle = document.getElementById('audio-toggle') as HTMLButtonElement;
 const audioStatus = document.getElementById('audio-status') as HTMLParagraphElement;
 const imuToggle = document.getElementById('imu-toggle') as HTMLButtonElement;
@@ -39,6 +40,7 @@ if (
   !lineWidthSlider ||
   !rotationControlsContainer ||
   !styleIndicatorsContainer ||
+  !planeIndicatorsContainer ||
   !audioToggle ||
   !audioStatus ||
   !imuToggle ||
@@ -71,6 +73,8 @@ if (projectionMode === 'perspective') {
 const rotationBus = new RotationBus();
 const synth = new ExtrumentSynth();
 const updateIndicators = createStyleIndicators(styleIndicatorsContainer);
+const updatePlaneIndicators = createPlaneIndicators(planeIndicatorsContainer);
+updatePlaneIndicators(ZERO_SNAPSHOT);
 
 rotationBus.subscribe(({ snapshot, dynamics }) => {
   core.updateRotation(snapshot);
@@ -95,6 +99,7 @@ parser.subscribe((frame) => {
   rotationBus.push({ ...rotation }, latestDynamics);
   updateRotationLabels(rotation, manualOffsets);
   updateIndicators(latestDynamics);
+  updatePlaneIndicators(rotation);
   updateStatus(latestDynamics);
 });
 
@@ -376,6 +381,75 @@ function updateProjectionControlUi(mode: ProjectionMode) {
       projectionDepthSlider.step = '0.05';
       break;
   }
+}
+
+const PLANE_COLORS: Record<RotationPlane, string> = {
+  xy: '#6ce7ff',
+  xz: '#7fffd4',
+  yz: '#ffc57a',
+  xw: '#dba2ff',
+  yw: '#ff86b5',
+  zw: '#88f3ff'
+};
+
+function createPlaneIndicators(container: HTMLDivElement) {
+  container.replaceChildren();
+
+  const indicators = new Map<RotationPlane, {
+    card: HTMLDivElement;
+    fill: HTMLSpanElement;
+    value: HTMLSpanElement;
+    direction: HTMLSpanElement;
+  }>();
+
+  for (const plane of SIX_PLANE_KEYS) {
+    const card = document.createElement('div');
+    card.className = 'plane-card';
+    card.dataset.direction = 'pos';
+
+    const header = document.createElement('div');
+    header.className = 'plane-header';
+    header.textContent = `${plane.toUpperCase()} Plane`;
+
+    const direction = document.createElement('span');
+    direction.className = 'plane-direction';
+    direction.textContent = '⟳';
+    header.appendChild(direction);
+
+    const value = document.createElement('span');
+    value.className = 'plane-value';
+    value.textContent = '+0.00π';
+
+    const bar = document.createElement('div');
+    bar.className = 'plane-bar';
+    const fill = document.createElement('span');
+    fill.className = 'plane-fill';
+    fill.style.background = PLANE_COLORS[plane];
+    bar.appendChild(fill);
+
+    card.appendChild(header);
+    card.appendChild(value);
+    card.appendChild(bar);
+    container.appendChild(card);
+
+    indicators.set(plane, { card, fill, value, direction });
+  }
+
+  return (snapshot: RotationSnapshot) => {
+    for (const plane of SIX_PLANE_KEYS) {
+      const indicator = indicators.get(plane);
+      if (!indicator) continue;
+      const angle = snapshot[plane];
+      const normalized = Math.min(1, Math.abs(angle) / Math.PI);
+      const multiple = angle / Math.PI;
+      const directionSymbol = angle >= 0 ? '⟳' : '⟲';
+      indicator.fill.style.width = `${(normalized * 100).toFixed(1)}%`;
+      indicator.fill.style.opacity = (0.45 + normalized * 0.45) * (0.6 + snapshot.confidence * 0.4);
+      indicator.value.textContent = `${angle >= 0 ? '+' : '−'}${Math.abs(multiple).toFixed(2)}π`;
+      indicator.direction.textContent = directionSymbol;
+      indicator.card.dataset.direction = angle >= 0 ? 'pos' : 'neg';
+    }
+  };
 }
 
 function createStyleIndicators(container: HTMLDivElement) {

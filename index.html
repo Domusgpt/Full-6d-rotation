@@ -82,6 +82,64 @@
         text-align: right;
         color: rgba(214, 245, 255, 0.8);
       }
+      #plane-indicators {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 12px;
+      }
+      .plane-card {
+        background: rgba(18, 30, 48, 0.6);
+        border: 1px solid rgba(94, 178, 255, 0.18);
+        border-radius: 14px;
+        padding: 10px 12px;
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+        box-shadow: inset 0 0 0 1px rgba(14, 26, 44, 0.45);
+      }
+      .plane-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        font-size: 0.76rem;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: rgba(167, 224, 255, 0.88);
+      }
+      .plane-value {
+        font-size: 0.8rem;
+        color: rgba(220, 248, 255, 0.78);
+        font-variant-numeric: tabular-nums;
+      }
+      .plane-bar {
+        position: relative;
+        height: 6px;
+        background: rgba(64, 112, 168, 0.35);
+        border-radius: 999px;
+        overflow: hidden;
+      }
+      .plane-fill {
+        position: absolute;
+        inset: 0 auto 0 0;
+        width: 0%;
+        border-radius: inherit;
+        opacity: 0.7;
+        transition: width 0.18s ease-out, opacity 0.18s ease-out;
+      }
+      .plane-direction {
+        font-size: 0.85rem;
+        color: rgba(170, 234, 255, 0.9);
+        letter-spacing: 0.04em;
+      }
+      .plane-card[data-direction='neg'] .plane-direction {
+        color: rgba(255, 143, 176, 0.92);
+      }
+      .plane-card[data-direction='neg'] .plane-fill {
+        opacity: 0.85;
+      }
+      .plane-card[data-direction='pos'] .plane-direction {
+        color: rgba(126, 255, 210, 0.92);
+      }
       .primary-button {
         background: linear-gradient(120deg, rgba(87, 214, 255, 0.9), rgba(156, 107, 255, 0.9));
         border: none;
@@ -158,6 +216,10 @@
         <section class="control-group">
           <label>Rotation Harmonics</label>
           <div id="style-indicators"></div>
+        </section>
+        <section class="control-group">
+          <label>Plane Energy Weave</label>
+          <div id="plane-indicators"></div>
         </section>
         <button id="audio-toggle" class="primary-button">Enable Sonic Weave</button>
         <p id="audio-status" class="status-note">Audio engine idle. Click to invite the sonic loom.</p>

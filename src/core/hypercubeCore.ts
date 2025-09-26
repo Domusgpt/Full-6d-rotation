@@ -575,9 +575,25 @@ void main() {
   float isoBrightness = clamp(brightness + (1.0 - chiralTone) * 0.12 + planeEnergy * 0.08 + spatialPulse * 0.15, 0.0, 1.2);
   float isoThickness = thickness * (1.0 + chiralTone * 0.45 + planeEnergy * 0.25);
   isoThickness *= mix(0.6, 1.6, confidence);
-  float isoChaos = clamp(chaos + chiralTone * 0.35 + planeBalance * 0.2 + hyperPulse * 0.1, 0.0, 1.0);
-  float isoEnergy = clamp(mix(energy, 1.0, chiralTone * 0.15) + planeEnergy * 0.1, 0.0, 1.2);
-  isoEnergy = clamp(isoEnergy * confidenceGlow, 0.0, 1.2);
+  float isoChaosBase = clamp(chaos + chiralTone * 0.35 + planeBalance * 0.2 + hyperPulse * 0.1, 0.0, 1.0);
+  float isoEnergyBase = clamp(mix(energy, 1.0, chiralTone * 0.15) + planeEnergy * 0.1, 0.0, 1.2);
+  isoEnergyBase = clamp(isoEnergyBase * confidenceGlow, 0.0, 1.2);
+
+  vec3 planeSpectrum = vec3(
+    spatialMagnitudes.x + hyperspatialMagnitudes.x,
+    spatialMagnitudes.y + hyperspatialMagnitudes.y,
+    spatialMagnitudes.z + hyperspatialMagnitudes.z
+  );
+  float sixPlaneWeight = clamp(length(planeSpectrum) / 3.4641016, 0.0, 1.0);
+  float orientationWeave = clamp(
+    dot(sign(spatialAngles.xyz), vec3(0.3333)) -
+      dot(sign(hyperspatialAngles.xyz), vec3(0.3333)),
+    -1.0,
+    1.0
+  );
+  isoThickness *= 1.0 + orientationWeave * 0.12;
+  float isoChaos = clamp(isoChaosBase + sixPlaneWeight * 0.15, 0.0, 1.0);
+  float isoEnergy = clamp(isoEnergyBase + sixPlaneWeight * 0.12, 0.0, 1.2);
 
   float geometricMix = dot(rotated, vec4(0.12, 0.18, 0.24, 0.3));
   geometricMix += dot(matrixProjected, rotated) * 0.01;
@@ -586,8 +602,11 @@ void main() {
   vec3 neutral = vec3(isoBrightness * mix(0.6, 1.0, confidence));
   float contour = 0.35 + 0.65 * smoothstep(0.0, u_projectionDepth, depth);
   float shimmer = 0.6 + 0.4 * sin(u_time * 0.6 + depth * 0.4 + spatialPulse * 2.2 + timeSeconds * 0.5);
-
-  v_color = mix(neutral, baseColor, isoSaturation) * contour * shimmer;
+  vec3 harmonicColor = mix(neutral, baseColor, isoSaturation) * contour * shimmer;
+  float weaveHue = fract(harmonic + planeBalance * 0.18 + sixPlaneWeight * 0.22);
+  vec3 planeColor = spectralPalette(weaveHue);
+  float planeMix = clamp(0.18 + sixPlaneWeight * 0.5 + abs(planeBalance) * 0.22, 0.0, 0.9);
+  v_color = mix(harmonicColor, planeColor, planeMix);
   v_depth = depth;
   v_energy = isoEnergy;
   v_thickness = isoThickness;
