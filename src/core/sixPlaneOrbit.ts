@@ -1,4 +1,4 @@
-import type { RotationAngles } from './rotationUniforms';
+import { rotationEnergy, type RotationAngles } from './rotationUniforms';
 
 const TAU = Math.PI * 2;
 export const SIX_PLANE_KEYS: ReadonlyArray<keyof RotationAngles> = ['xy', 'xz', 'yz', 'xw', 'yw', 'zw'];
@@ -16,6 +16,12 @@ export interface OrbitSpec {
   planes: OrbitPlane[];
   coupling?: number;
   hyperCoupling?: number;
+}
+
+export interface LoomSample {
+  time: number;
+  energy: number;
+  angles: RotationAngles;
 }
 
 const GOLDEN_RATIO = (1 + Math.sqrt(5)) / 2;
@@ -79,5 +85,25 @@ export function createHarmonicOrbit(spec: OrbitSpec = defaultSpec()): (timeSecon
     }
 
     return angles;
+  };
+}
+
+export function createRotationLoom(
+  orbit: (timeSeconds: number) => RotationAngles,
+  length = 240
+): (timeSeconds: number) => LoomSample[] {
+  const samples: LoomSample[] = [];
+  return (timeSeconds: number) => {
+    const angles = orbit(timeSeconds);
+    const energy = rotationEnergy(angles);
+    samples.push({
+      time: timeSeconds,
+      energy,
+      angles: { ...angles }
+    });
+    if (samples.length > length) {
+      samples.shift();
+    }
+    return samples.slice();
   };
 }
