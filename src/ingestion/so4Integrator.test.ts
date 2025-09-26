@@ -46,4 +46,21 @@ describe('So4ImuIntegrator', () => {
     expect(state.xz).toBeCloseTo(-0.2);
     expect(state.yz).toBeCloseTo(0.1);
   });
+
+  it('accepts custom mapping profiles', () => {
+    const integrator = new So4ImuIntegrator(undefined, {
+      mappingProfile: {
+        spatial: { xy: [0, 0, 1], xz: [1, 0, 0], yz: [0, 1, 0] }
+      }
+    });
+
+    const gyroPacket: ImuPacket = { ...BASE_PACKET, gyro: [1, 0, 0], timestamp: 5 };
+    const first = integrator.step(gyroPacket, 0.5);
+    expect(first.xz).toBeCloseTo(0.5, 5);
+    expect(first.xy).toBeCloseTo(0, 5);
+
+    integrator.setMappingProfile({ spatial: { xy: [1, 0, 0], xz: [0, 1, 0], yz: [0, 0, 1] } });
+    const remapped = integrator.step({ ...gyroPacket, timestamp: 10 }, 0.5);
+    expect(remapped.xy).toBeCloseTo(0.5, 5);
+  });
 });

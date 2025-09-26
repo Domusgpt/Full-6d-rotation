@@ -1,5 +1,13 @@
 import { ZERO_ROTATION, type RotationAngles, type RotationSnapshot } from '../core/rotationUniforms';
-import { DEFAULT_GAINS, mapImuPacket, type ImuPacket, type MappingGains } from './imuMapper';
+import {
+  DEFAULT_GAINS,
+  mapImuPacket,
+  resolvePlaneMappingProfile,
+  type ImuPacket,
+  type MappingGains,
+  type PlaneMappingProfile,
+  type ResolvedPlaneMappingProfile
+} from './imuMapper';
 
 export interface So4ImuIntegratorOptions {
   /**
@@ -10,6 +18,8 @@ export interface So4ImuIntegratorOptions {
   hyperSmoothing?: number;
   /** Maximum absolute angle that will be retained for any plane. */
   maxMagnitude?: number;
+  /** Mapping profile describing how IMU axes map into SO(4) planes. */
+  mappingProfile?: PlaneMappingProfile;
 }
 
 const TAU = Math.PI * 2;
@@ -43,16 +53,22 @@ export class So4ImuIntegrator {
   private gains: MappingGains;
   private hyperSmoothing: number;
   private readonly maxMagnitude: number;
+  private mapping: ResolvedPlaneMappingProfile;
 
   constructor(gains: MappingGains = DEFAULT_GAINS, options: So4ImuIntegratorOptions = {}) {
     this.gains = cloneGains(gains);
     const smoothing = options.hyperSmoothing ?? 0.25;
     this.hyperSmoothing = Number.isFinite(smoothing) ? Math.min(Math.max(smoothing, 0), 1) : 0.25;
     this.maxMagnitude = options.maxMagnitude ?? Math.PI;
+    this.mapping = resolvePlaneMappingProfile(options.mappingProfile);
   }
 
   setGains(gains: MappingGains) {
     this.gains = cloneGains(gains);
+  }
+
+  setMappingProfile(profile: PlaneMappingProfile | null | undefined) {
+    this.mapping = resolvePlaneMappingProfile(profile);
   }
 
   reset(angles: RotationAngles = ZERO_ROTATION) {
@@ -68,7 +84,7 @@ export class So4ImuIntegrator {
     if (gains !== this.gains) {
       this.setGains(gains);
     }
-    const measurement = mapImuPacket(packet, dt, this.gains);
+    const measurement = mapImuPacket(packet, dt, this.gains, this.mapping);
 
     this.angles.xy = clampMagnitude(wrapAngle(this.angles.xy + measurement.xy), this.maxMagnitude);
     this.angles.xz = clampMagnitude(wrapAngle(this.angles.xz + measurement.xz), this.maxMagnitude);
