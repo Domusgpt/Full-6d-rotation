@@ -36,6 +36,11 @@ import {
 } from './ingestion/parserator';
 import { AVAILABLE_PROFILES, DEFAULT_PROFILE, getProfileById } from './ingestion/profiles';
 import { TelemetryLoom } from './pipeline/telemetryLoom';
+import {
+  ConfidenceTrend,
+  DATASET_CONFIDENCE_TREND_STORAGE_KEY,
+  type ConfidenceTrendState
+} from './pipeline/confidenceTrend';
 
 const canvas = document.getElementById('gl-canvas') as HTMLCanvasElement;
 const statusEl = document.getElementById('status') as HTMLParagraphElement;
@@ -54,6 +59,8 @@ const datasetFormatEl = document.getElementById('dataset-format') as HTMLSpanEle
 const manifestFramesEl = document.getElementById('manifest-frames') as HTMLSpanElement;
 const manifestP95El = document.getElementById('manifest-p95') as HTMLSpanElement;
 const manifestConfidenceEl = document.getElementById('manifest-confidence') as HTMLSpanElement;
+const manifestUpdatedEl = document.getElementById('manifest-updated') as HTMLSpanElement;
+const manifestConfidenceTrendCanvas = document.getElementById('manifest-confidence-trend') as HTMLCanvasElement;
 const manifestDownloadButton = document.getElementById('manifest-download') as HTMLButtonElement;
 const parseratorProfileNameEl = document.getElementById('parserator-profile-name') as HTMLSpanElement;
 const parseratorProfileSelect = document.getElementById('parserator-profile-select') as HTMLSelectElement;
@@ -87,6 +94,8 @@ if (
   !manifestP95El ||
   !manifestDownloadButton ||
   !manifestConfidenceEl ||
+  !manifestUpdatedEl ||
+  !manifestConfidenceTrendCanvas ||
   !parseratorProfileNameEl ||
   !parseratorProfileSelect ||
   !parseratorConfidenceValueEl ||
@@ -101,6 +110,12 @@ if (
   !telemetryEventsEl
 ) {
   throw new Error('Required DOM nodes are missing');
+}
+
+const manifestConfidenceTrendCtx = manifestConfidenceTrendCanvas.getContext('2d');
+
+if (!manifestConfidenceTrendCtx) {
+  throw new Error('Unable to create manifest confidence trend context');
 }
 
 const core = new HypercubeCore(canvas, {
@@ -128,10 +143,29 @@ try {
   console.warn('Failed to load dataset manifest', error);
 }
 
+let persistedTrendState: ConfidenceTrendState | undefined;
+try {
+  if (typeof localStorage !== 'undefined') {
+    const rawTrend = localStorage.getItem(DATASET_CONFIDENCE_TREND_STORAGE_KEY);
+    if (rawTrend) {
+      persistedTrendState = JSON.parse(rawTrend) as ConfidenceTrendState;
+    }
+  }
+} catch (error) {
+  console.warn('Failed to load confidence trend', error);
+}
+
 const manifestBuilder = new DatasetManifestBuilder({ hydrateFrom: persistedManifest });
 const pspStream = new LocalPspStream();
 const focusDirector = new FocusDirector(geometryController, rotationBus, { fallbackGeometry: 'tesseract' });
 const MAX_PENDING_FRAMES = 48;
+const CONFIDENCE_TREND_POINTS = 60;
+
+const confidenceTrend = new ConfidenceTrend({
+  maxPoints: CONFIDENCE_TREND_POINTS,
+  state: persistedTrendState
+});
+let lastManifestUpdateSample = confidenceTrend.getUpdatedAt() ?? 0;
 
 const extrumentHub = new ExtrumentHub<NormalizedSnapshot>({
   transform: normalizeSnapshot,
@@ -296,20 +330,56 @@ function updateManifestTelemetry() {
       : '–';
   manifestDownloadButton.disabled = manifest.stats.totalFrames === 0;
 
+  const lastUpdated = manifest.stats.lastUpdated || 0;
+  manifestUpdatedEl.textContent = lastUpdated ? formatUpdatedTimestamp(lastUpdated) : '–';
+
   const histogram = manifest.stats.confidenceHistogram;
-  if (histogram?.totalSamples) {
+  let ratio: number | null = null;
+  let highConfidence = 0;
+  if (histogram) {
     const bucketSize = histogram.bucketSize || 0.1;
     const thresholdIndex = Math.min(
       histogram.counts.length - 1,
       Math.max(0, Math.ceil(0.9 / bucketSize) - 1)
     );
-    const highConfidence = histogram.counts
+    highConfidence = histogram.counts
       .slice(thresholdIndex)
       .reduce((sum, value) => sum + value, 0);
-    const percentage = Math.round((highConfidence / histogram.totalSamples) * 100);
+    if (histogram.totalSamples > 0) {
+      ratio = highConfidence / histogram.totalSamples;
+    } else if (manifest.stats.totalFrames > 0) {
+      ratio = 0;
+    }
+  }
+
+  if (ratio !== null) {
+    const percentage = Math.round(ratio * 100);
     manifestConfidenceEl.textContent = `${percentage}% · ${highConfidence}`;
   } else {
     manifestConfidenceEl.textContent = '–';
+  }
+
+  const isNewSample = lastUpdated > 0 && lastUpdated !== lastManifestUpdateSample;
+  let trendChanged = false;
+
+  if (manifest.stats.totalFrames === 0) {
+    if (!confidenceTrend.isEmpty()) {
+      confidenceTrend.clear();
+      trendChanged = true;
+    }
+  } else if (isNewSample && ratio !== null) {
+    confidenceTrend.record(ratio, lastUpdated);
+    trendChanged = true;
+  }
+
+  renderConfidenceTrend();
+
+  if (trendChanged) {
+    persistConfidenceTrend();
+  }
+
+  if (isNewSample) {
+    lastManifestUpdateSample = lastUpdated;
   }
 }
 
@@ -321,9 +391,148 @@ function persistManifest() {
     }
     const manifest = manifestBuilder.getManifest();
     localStorage.setItem(DATASET_MANIFEST_STORAGE_KEY, JSON.stringify(manifest));
+    persistConfidenceTrend();
   } catch (error) {
     console.warn('Failed to persist dataset manifest', error);
   }
+}
+
+function persistConfidenceTrend() {
+  try {
+    if (typeof localStorage === 'undefined') {
+      return;
+    }
+    const payload = confidenceTrend.toJSON();
+    localStorage.setItem(DATASET_CONFIDENCE_TREND_STORAGE_KEY, JSON.stringify(payload));
+  } catch (error) {
+    console.warn('Failed to persist confidence trend', error);
+  }
+}
+
+function renderConfidenceTrend() {
+  const width = manifestConfidenceTrendCanvas.clientWidth;
+  const height = manifestConfidenceTrendCanvas.clientHeight;
+  if (width === 0 || height === 0) {
+    return;
+  }
+
+  const dpr = window.devicePixelRatio || 1;
+  const actualWidth = Math.max(1, Math.round(width * dpr));
+  const actualHeight = Math.max(1, Math.round(height * dpr));
+  if (
+    manifestConfidenceTrendCanvas.width !== actualWidth ||
+    manifestConfidenceTrendCanvas.height !== actualHeight
+  ) {
+    manifestConfidenceTrendCanvas.width = actualWidth;
+    manifestConfidenceTrendCanvas.height = actualHeight;
+  }
+
+  manifestConfidenceTrendCtx.setTransform(1, 0, 0, 1, 0, 0);
+  manifestConfidenceTrendCtx.clearRect(0, 0, actualWidth, actualHeight);
+  manifestConfidenceTrendCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+  manifestConfidenceTrendCtx.fillStyle = 'rgba(12, 18, 32, 0.35)';
+  manifestConfidenceTrendCtx.fillRect(0, 0, width, height);
+
+  // Reference line at 90% confidence
+  manifestConfidenceTrendCtx.strokeStyle = 'rgba(127, 210, 255, 0.25)';
+  manifestConfidenceTrendCtx.lineWidth = 1;
+  const ninetyLine = height - height * 0.9;
+  manifestConfidenceTrendCtx.beginPath();
+  manifestConfidenceTrendCtx.moveTo(0, ninetyLine);
+  manifestConfidenceTrendCtx.lineTo(width, ninetyLine);
+  manifestConfidenceTrendCtx.stroke();
+
+  const values = confidenceTrend.getValues();
+  if (!values.length) {
+    manifestConfidenceTrendCtx.fillStyle = 'rgba(211, 246, 255, 0.6)';
+    manifestConfidenceTrendCtx.font =
+      '10px "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace';
+    manifestConfidenceTrendCtx.textBaseline = 'middle';
+    manifestConfidenceTrendCtx.fillText('No samples', 8, height / 2);
+    return;
+  }
+
+  const step = values.length > 1 ? width / (values.length - 1) : width;
+  const points = values.map((ratio, index) => ({
+    x: values.length === 1 ? width : index * step,
+    y: height - ratio * height
+  }));
+
+  manifestConfidenceTrendCtx.lineWidth = 1.5;
+  manifestConfidenceTrendCtx.strokeStyle = 'rgba(127, 210, 255, 0.9)';
+  manifestConfidenceTrendCtx.beginPath();
+  if (points.length === 1) {
+    const point = points[0];
+    manifestConfidenceTrendCtx.moveTo(0, point.y);
+    manifestConfidenceTrendCtx.lineTo(point.x, point.y);
+  } else {
+    manifestConfidenceTrendCtx.moveTo(points[0].x, points[0].y);
+    for (let i = 1; i < points.length; i++) {
+      manifestConfidenceTrendCtx.lineTo(points[i].x, points[i].y);
+    }
+  }
+  manifestConfidenceTrendCtx.stroke();
+
+  manifestConfidenceTrendCtx.fillStyle = 'rgba(127, 210, 255, 0.22)';
+  manifestConfidenceTrendCtx.beginPath();
+  manifestConfidenceTrendCtx.moveTo(0, height);
+  if (points.length === 1) {
+    const point = points[0];
+    manifestConfidenceTrendCtx.lineTo(0, point.y);
+    manifestConfidenceTrendCtx.lineTo(point.x, point.y);
+  } else {
+    manifestConfidenceTrendCtx.lineTo(points[0].x, points[0].y);
+    for (let i = 1; i < points.length; i++) {
+      manifestConfidenceTrendCtx.lineTo(points[i].x, points[i].y);
+    }
+  }
+  manifestConfidenceTrendCtx.lineTo(width, height);
+  manifestConfidenceTrendCtx.closePath();
+  manifestConfidenceTrendCtx.fill();
+
+  const latest = points[points.length - 1];
+  manifestConfidenceTrendCtx.fillStyle = 'rgba(127, 210, 255, 0.85)';
+  manifestConfidenceTrendCtx.beginPath();
+  manifestConfidenceTrendCtx.arc(latest.x, latest.y, 3, 0, Math.PI * 2);
+  manifestConfidenceTrendCtx.fill();
+}
+
+function formatUpdatedTimestamp(timestamp: number): string {
+  const formattedTime = new Date(timestamp).toLocaleTimeString([], {
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit'
+  });
+  return `${formattedTime} · ${formatRelativeTime(timestamp)}`;
+}
+
+function formatRelativeTime(timestamp: number): string {
+  const now = Date.now();
+  const diff = now - timestamp;
+  if (!Number.isFinite(diff) || diff < 0) {
+    return 'just now';
+  }
+  if (diff < 5_000) {
+    return 'just now';
+  }
+  const seconds = Math.floor(diff / 1_000);
+  if (seconds < 60) {
+    return `${seconds}s ago`;
+  }
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) {
+    const rem = seconds % 60;
+    return rem ? `${minutes}m ${rem}s ago` : `${minutes}m ago`;
+  }
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) {
+    const rem = minutes % 60;
+    return rem ? `${hours}h ${rem}m ago` : `${hours}h ago`;
+  }
+  const days = Math.floor(hours / 24);
+  const remHours = hours % 24;
+  return remHours ? `${days}d ${remHours}h ago` : `${days}d ago`;
 }
 
 function logParseratorEvent(message: string, metadata?: Record<string, unknown>) {
@@ -610,9 +819,14 @@ manifestDownloadButton.addEventListener('click', downloadManifest);
 
 updateExtrumentStatus();
 updateManifestTelemetry();
+renderConfidenceTrend();
 
 window.addEventListener('beforeunload', () => {
   extrumentDisconnectors.forEach(dispose => dispose());
+});
+
+window.addEventListener('resize', () => {
+  renderConfidenceTrend();
 });
 
 function populateGeometryOptions() {

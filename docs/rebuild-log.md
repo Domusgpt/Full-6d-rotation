@@ -134,3 +134,19 @@ This log captures the follow-on work after the “Implement staged rebuild bluep
 ### Next checkpoints
 - Persist telemetry loom snapshots alongside dataset manifests so offline exports retain calibration timelines.
 - Visualise histogram trends over time (sparklines or rolling windows) to highlight confidence regressions during capture.
+
+## Session – Manifest Update Signals & Confidence Trends
+
+### What changed
+- **Confidence trend store** (`confidenceTrend.ts`, tests) – added a bounded, persistent sparkline buffer that records the high-confidence ratio every time the manifest updates.
+- **Control-panel signals** (`index.html`, `main.ts`) – surfaced the manifest last-updated timestamp with relative time formatting, drew a live confidence sparkline, and persisted the trend alongside the manifest.
+- **Trend rendering utility** (`main.ts`) – normalized canvas rendering with DPI-aware drawing, 90% reference lines, and graceful empty-state messaging.
+
+### Why these pieces matter
+- The **confidence trend** highlights regression patterns that a single histogram snapshot obscures, warning operators when coverage begins to slip mid-session.
+- **Last-updated timestamps** make it obvious when fresh frames hit disk, tightening the loop between capture, export, and operator review.
+- Persisting the **sparkline history** means restarts keep trend context, so follow-up analysis can correlate drops with telemetry events captured in previous sessions.
+
+### Next checkpoints
+- Thread the confidence trend into manifest downloads so offline analysis retains sparkline samples.
+- Overlay parserator confidence-floor changes on the sparkline to correlate configuration shifts with confidence coverage swings.
