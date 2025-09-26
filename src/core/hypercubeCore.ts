@@ -1,5 +1,7 @@
-import { RotationUniformBuffer, type RotationAngles } from './rotationUniforms';
+import { RotationUniformBuffer, type RotationAngles, type RotationSnapshot } from './rotationUniforms';
+import { UniformSyncQueue, type UniformSyncMetrics } from './uniformSyncQueue';
 import type { GeometryData } from '../geometry/types';
+import { flipPixelsVertically } from './frameUtils';
 
 export interface HypercubeCoreOptions {
   projectionDepth?: number;
@@ -16,6 +18,9 @@ export class HypercubeCore {
   private lineWidth = 1.5;
   private lastTimestamp = 0;
   private animationHandle: number | null = null;
+  private readonly uniformQueue = new UniformSyncQueue();
+  private uniformMetrics: UniformSyncMetrics = this.uniformQueue.getMetrics();
+  private uniformUploadListener: ((snapshot: RotationSnapshot, metrics: UniformSyncMetrics) => void) | null = null;
 
   private uniforms!: {
     projectionDepth: WebGLUniformLocation;
@@ -48,6 +53,10 @@ export class HypercubeCore {
     this.lineWidth = width;
   }
 
+  setUniformUploadListener(listener: ((snapshot: RotationSnapshot, metrics: UniformSyncMetrics) => void) | null) {
+    this.uniformUploadListener = listener;
+  }
+
   setGeometry(geometry: GeometryData) {
     const { gl } = this;
     if (!this.vao) {
@@ -75,8 +84,30 @@ export class HypercubeCore {
     gl.bindVertexArray(null);
   }
 
-  updateRotation(angles: RotationAngles) {
-    this.rotationBuffer.update(angles);
+  updateRotation(snapshot: RotationSnapshot) {
+    this.uniformQueue.enqueue(snapshot);
+  }
+
+  getUniformMetrics(): UniformSyncMetrics {
+    return { ...this.uniformMetrics };
+  }
+
+  captureFrame() {
+    const { gl } = this;
+    const width = gl.drawingBufferWidth;
+    const height = gl.drawingBufferHeight;
+    if (width === 0 || height === 0) {
+      return { width, height, pixels: new Uint8ClampedArray(0) };
+    }
+
+    if (gl.readBuffer) {
+      gl.readBuffer(gl.BACK);
+    }
+
+    const raw = new Uint8Array(width * height * 4);
+    gl.readPixels(0, 0, width, height, gl.RGBA, gl.UNSIGNED_BYTE, raw);
+    const pixels = flipPixelsVertically(width, height, raw);
+    return { width, height, pixels };
   }
 
   start() {
@@ -105,6 +136,14 @@ export class HypercubeCore {
     gl.viewport(0, 0, gl.canvas.width, gl.canvas.height);
     gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
 
+    const pending = this.uniformQueue.consume();
+    let renderedSnapshot: RotationSnapshot | null = null;
+    if (pending) {
+      this.rotationBuffer.update(pending);
+      this.uniformMetrics = this.uniformQueue.getMetrics();
+      renderedSnapshot = pending;
+    }
+
     gl.useProgram(this.program);
     gl.bindVertexArray(this.vao);
 
@@ -114,6 +153,9 @@ export class HypercubeCore {
     gl.lineWidth(this.lineWidth);
 
     gl.drawElements(gl.LINES, this.indexCount, gl.UNSIGNED_SHORT, 0);
+    if (renderedSnapshot && this.uniformUploadListener) {
+      this.uniformUploadListener(renderedSnapshot, this.uniformMetrics);
+    }
     gl.bindVertexArray(null);
   }
 

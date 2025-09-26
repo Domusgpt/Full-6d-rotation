@@ -1,5 +1,7 @@
 # PPP Technical Architecture Specification v3.0
 
+> **Alignment Note (2024):** Map all component names in this specification to the TypeScript modules inside `src/`. Rendering is implemented by `src/core/hypercubeCore.ts` and companions, ingestion by `src/ingestion/`, and orchestration/telemetry by `src/pipeline/`.
+
 ## Complete System Documentation for Polytopal Projection Processing
 
 ---
