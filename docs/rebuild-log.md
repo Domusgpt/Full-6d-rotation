@@ -150,3 +150,17 @@ This log captures the follow-on work after the “Implement staged rebuild bluep
 ### Next checkpoints
 - Thread the confidence trend into manifest downloads so offline analysis retains sparkline samples.
 - Overlay parserator confidence-floor changes on the sparkline to correlate configuration shifts with confidence coverage swings.
+
+## Session – System Inventory & Operator Checklist
+
+### What changed
+- Catalogued every active subsystem, its responsibilities, and supporting tests in a dedicated system-status inventory so future contributors can verify scope at a glance.【F:docs/system-status.md†L1-L47】
+- Expanded the testable-build guide with a manual QA walkthrough covering geometry toggles, parserator calibration, extrument connections, dataset exports, and manifest archival steps.【F:docs/testable-build.md†L1-L40】【F:docs/testable-build.md†L26-L40】
+
+### Why these pieces matter
+- The subsystem inventory provides an authoritative map of features and their validation hooks, reducing ramp-up time before tackling the staged rebuild plan.【F:docs/system-status.md†L1-L60】
+- The manual QA checklist ensures personal testing captures rotation, telemetry, export, and extrument paths exactly as wired in the TypeScript implementation.【F:docs/testable-build.md†L26-L40】
+
+### Next checkpoints
+- Fold screenshots or screen recordings of the operator console into the documentation so visual regressions can be spotted quickly during manual runs.
+- Automate the manual QA checklist via Playwright once the rebuild plan prioritises end-to-end smoke coverage.
