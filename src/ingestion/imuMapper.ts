@@ -12,7 +12,7 @@ export interface MappingGains {
   hyperspatial: [number, number, number];
 }
 
-const DEFAULT_GAINS: MappingGains = {
+export const DEFAULT_GAINS: MappingGains = {
   spatial: [1, 1, 1],
   hyperspatial: [0.35, 0.35, 0.35]
 };

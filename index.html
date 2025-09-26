@@ -100,6 +100,13 @@
       .primary-button.active {
         box-shadow: 0 0 0 2px rgba(95, 188, 255, 0.4);
       }
+      .primary-button.secondary {
+        background: linear-gradient(120deg, rgba(92, 118, 255, 0.85), rgba(149, 239, 255, 0.85));
+        color: rgba(4, 19, 31, 0.85);
+      }
+      .primary-button.secondary.active {
+        box-shadow: 0 0 0 2px rgba(118, 211, 255, 0.5);
+      }
       .status-note {
         font-size: 0.72rem;
         color: rgba(180, 226, 255, 0.7);
@@ -143,6 +150,8 @@
           <label>Rotation Harmonics</label>
           <div id="style-indicators"></div>
         </section>
+        <button id="imu-toggle" class="primary-button secondary">Connect IMU Stream</button>
+        <p id="imu-status" class="status-note">IMU link idle. Connect a sensor to drive hyperspatial flow.</p>
         <button id="audio-toggle" class="primary-button">Enable Sonic Weave</button>
         <p id="audio-status" class="status-note">Audio engine idle. Click to invite the sonic loom.</p>
       </aside>

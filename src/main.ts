@@ -6,6 +6,7 @@ import { RotationBus } from './pipeline/rotationBus';
 import { deriveRotationDynamics } from './core/rotationDynamics';
 import type { RotationDynamics } from './core/styleUniforms';
 import { ExtrumentSynth } from './audio/extrumentSynth';
+import { ImuStream, type ImuStreamStatus } from './ingestion/imuStream';
 
 const canvas = document.getElementById('gl-canvas') as HTMLCanvasElement;
 const statusEl = document.getElementById('status') as HTMLParagraphElement;
@@ -14,6 +15,8 @@ const projectionDepthSlider = document.getElementById('projectionDepth') as HTML
 const lineWidthSlider = document.getElementById('lineWidth') as HTMLInputElement;
 const rotationControlsContainer = document.getElementById('rotation-controls') as HTMLDivElement;
 const styleIndicatorsContainer = document.getElementById('style-indicators') as HTMLDivElement;
+const imuToggle = document.getElementById('imu-toggle') as HTMLButtonElement;
+const imuStatus = document.getElementById('imu-status') as HTMLParagraphElement;
 const audioToggle = document.getElementById('audio-toggle') as HTMLButtonElement;
 const audioStatus = document.getElementById('audio-status') as HTMLParagraphElement;
 
@@ -25,6 +28,8 @@ if (
   !lineWidthSlider ||
   !rotationControlsContainer ||
   !styleIndicatorsContainer ||
+  !imuToggle ||
+  !imuStatus ||
   !audioToggle ||
   !audioStatus
 ) {
@@ -39,6 +44,16 @@ const core = new HypercubeCore(canvas, {
 const rotationBus = new RotationBus();
 const synth = new ExtrumentSynth();
 const updateIndicators = createStyleIndicators(styleIndicatorsContainer);
+
+const socketProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+const imuUrl = (import.meta.env.VITE_IMU_URL as string | undefined) ?? `${socketProtocol}//${window.location.host}/imu`;
+
+const imuStream = new ImuStream({
+  url: imuUrl,
+  smoothing: 0.35,
+  onSnapshot: handleImuSnapshot,
+  onStatus: handleImuStatus
+});
 
 rotationBus.subscribe(({ snapshot, dynamics }) => {
   core.updateRotation(snapshot);
@@ -56,26 +71,114 @@ let statusBase = 'Geometry: —';
 
 const manualOffsets: RotationAngles = { ...ZERO_ROTATION };
 const autoAngles: RotationAngles = { ...ZERO_ROTATION };
+const imuAngles: RotationAngles = { ...ZERO_ROTATION };
+
+let imuConfidence = 1;
+let imuActive = false;
+let stopAutoOrbit: (() => void) | null = null;
 
 let updateRotationLabels: (combined: RotationAngles, manual: RotationAngles) => void;
+
+function resetAngles(target: RotationAngles) {
+  for (const plane of SIX_PLANE_KEYS) {
+    target[plane] = 0;
+  }
+}
+
+function pauseAutoOrbit() {
+  if (!stopAutoOrbit) return;
+  stopAutoOrbit();
+  stopAutoOrbit = null;
+  resetAngles(autoAngles);
+}
+
+function resumeAutoOrbit() {
+  if (stopAutoOrbit) return;
+  stopAutoOrbit = startSyntheticRotation(autoAngles, pushRotationSnapshot);
+}
 
 function pushRotationSnapshot(timestamp: number) {
   rotationState.timestamp = timestamp;
 
   let energy = 0;
   for (const plane of SIX_PLANE_KEYS) {
-    rotationState[plane] = autoAngles[plane] + manualOffsets[plane];
+    rotationState[plane] = autoAngles[plane] + manualOffsets[plane] + imuAngles[plane];
     energy += Math.abs(rotationState[plane]);
   }
 
   const normalized = Math.min(1, energy / (Math.PI * SIX_PLANE_KEYS.length));
-  rotationState.confidence = 0.75 + 0.25 * (1 - normalized);
+  let confidence = 0.75 + 0.25 * (1 - normalized);
+  if (imuActive) {
+    confidence = Math.min(1, Math.max(0, (confidence + imuConfidence) * 0.5));
+  }
+  rotationState.confidence = confidence;
 
   const dynamics = deriveRotationDynamics(rotationState);
   rotationBus.push({ ...rotationState }, dynamics);
   updateRotationLabels(rotationState, manualOffsets);
   updateIndicators(dynamics);
   updateStatus(dynamics);
+}
+
+function handleImuSnapshot(snapshot: RotationSnapshot) {
+  imuActive = true;
+  imuConfidence = snapshot.confidence;
+  for (const plane of SIX_PLANE_KEYS) {
+    imuAngles[plane] = snapshot[plane];
+  }
+  pushRotationSnapshot(snapshot.timestamp);
+}
+
+function handleImuStatus(status: ImuStreamStatus) {
+  switch (status.state) {
+    case 'connecting': {
+      imuToggle.disabled = true;
+      imuToggle.textContent = 'Connecting…';
+      imuStatus.textContent = 'Opening IMU stream…';
+      break;
+    }
+    case 'open': {
+      imuToggle.disabled = false;
+      imuToggle.textContent = 'Disconnect IMU Stream';
+      imuToggle.classList.add('active');
+      imuStatus.textContent = 'IMU stream active. Rotations now follow embodied motion.';
+      imuActive = true;
+      pauseAutoOrbit();
+      imuConfidence = 1;
+      resetAngles(imuAngles);
+      pushRotationSnapshot(performance.now());
+      break;
+    }
+    case 'closed': {
+      imuToggle.disabled = false;
+      imuToggle.textContent = 'Connect IMU Stream';
+      imuToggle.classList.remove('active');
+      imuStatus.textContent = 'IMU link idle. Connect a sensor to drive hyperspatial flow.';
+      imuActive = false;
+      imuConfidence = 1;
+      resetAngles(imuAngles);
+      pushRotationSnapshot(performance.now());
+      resumeAutoOrbit();
+      break;
+    }
+    case 'error': {
+      imuToggle.disabled = false;
+      imuToggle.textContent = 'Reconnect IMU Stream';
+      imuToggle.classList.remove('active');
+      imuStatus.textContent = status.detail ? `IMU stream error: ${status.detail}` : 'IMU stream error occurred.';
+      imuActive = false;
+      imuConfidence = 0.5;
+      resetAngles(imuAngles);
+      pushRotationSnapshot(performance.now());
+      resumeAutoOrbit();
+      break;
+    }
+    default: {
+      imuToggle.disabled = false;
+      imuToggle.classList.remove('active');
+      imuStatus.textContent = 'IMU link idle. Connect a sensor to drive hyperspatial flow.';
+    }
+  }
 }
 
 updateRotationLabels = createRotationControls(rotationControlsContainer, manualOffsets, () => {
@@ -107,8 +210,16 @@ lineWidthSlider.addEventListener('input', (event) => {
   core.setLineWidth(value);
 });
 
+imuToggle.addEventListener('click', () => {
+  if (imuStream.isActive) {
+    imuStream.disconnect();
+  } else {
+    imuStream.connect();
+  }
+});
+
 setGeometry('tesseract');
-startSyntheticRotation(autoAngles, timestamp => pushRotationSnapshot(timestamp));
+resumeAutoOrbit();
 core.start();
 
 audioToggle.addEventListener('click', async () => {
@@ -182,11 +293,17 @@ function createRotationControls(
   };
 }
 
-function startSyntheticRotation(autoState: RotationAngles, onUpdate: (timestamp: number) => void) {
+function startSyntheticRotation(
+  autoState: RotationAngles,
+  onUpdate: (timestamp: number) => void
+): () => void {
   const orbit = createHarmonicOrbit();
   const startedAt = performance.now();
+  let active = true;
+  let frameHandle = 0;
 
   const tick = () => {
+    if (!active) return;
     const now = performance.now();
     const elapsed = (now - startedAt) / 1000;
     const orbitAngles = orbit(elapsed);
@@ -196,10 +313,17 @@ function startSyntheticRotation(autoState: RotationAngles, onUpdate: (timestamp:
     }
 
     onUpdate(now);
-    requestAnimationFrame(tick);
+    frameHandle = requestAnimationFrame(tick);
   };
 
-  requestAnimationFrame(tick);
+  frameHandle = requestAnimationFrame(tick);
+
+  return () => {
+    if (!active) return;
+    active = false;
+    cancelAnimationFrame(frameHandle);
+    resetAngles(autoState);
+  };
 }
 
 function updateStatus(dynamics: RotationDynamics) {
