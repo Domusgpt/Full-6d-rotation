@@ -68,3 +68,19 @@ This log captures the follow-on work after the “Implement staged rebuild bluep
 ### Next checkpoints
 - Add manifest export/download affordances so recorded sessions can be archived or shared outside the browser sandbox.
 - Thread manifest statistics into the rebuild telemetry loom once percentile visualisations ship in Stage 6.
+
+## Session – Extrument Calibration & Parserator Persistence
+
+### What changed
+- **Calibration toolkit** (`calibration.ts`, tests) – introduced reusable helpers to snapshot rotation offsets, blend repeated captures, and serialize the resulting profile for persistence.
+- **Parserator integration** (`parserator.ts`, tests) – applied calibrations to every emitted snapshot, exposed smoothing-based capture/clear APIs, and reused the toolkit during replay harness runs.
+- **Operator UI & storage** (`index.html`, `main.ts`) – surfaced calibration status in the control panel, added zero/clear buttons, and persisted the active calibration alongside the dataset manifest.
+
+### Why these pieces matter
+- The **calibration profile** keeps IMU-driven extruments from drifting after setup, giving operators a deterministic way to zero the six-plane snapshot before routing it to MIDI or other adapters.
+- **Parserator smoothing** makes on-device calibration reproducible: repeated captures converge to a stable offset even when live packets include noise, satisfying the rebuild blueprint’s deterministic ingestion requirements.
+- The **control-panel affordance** gives immediate confirmation that the active calibration is stored and applied, preventing surprise offsets when reconnecting sensors or reloading the session.
+
+### Next checkpoints
+- Extend calibration storage with named presets so multiple devices can share the same browser profile without manual re-zeroing.
+- Thread calibration metadata into dataset manifests to keep PSP exports traceable to their ingestion baseline during Stage 6 regression runs.

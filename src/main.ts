@@ -20,6 +20,17 @@ import {
   type NormalizedSnapshot
 } from './ingestion/extrumentHub';
 import { discoverMidiAdapters } from './ingestion/midiExtrument';
+import {
+  applyCalibration,
+  calibrationSummary,
+  cloneCalibration,
+  createCalibrationFromSnapshot,
+  deserializeCalibration,
+  EXTRUMENT_CALIBRATION_STORAGE_KEY,
+  hasCalibration,
+  serializeCalibration,
+  type ExtrumentCalibration
+} from './ingestion/calibration';
 
 const canvas = document.getElementById('gl-canvas') as HTMLCanvasElement;
 const statusEl = document.getElementById('status') as HTMLParagraphElement;
@@ -41,6 +52,9 @@ const extrumentStatusEl = document.getElementById('extrument-status') as HTMLSpa
 const extrumentOutputEl = document.getElementById('extrument-output') as HTMLSpanElement;
 const extrumentPayloadEl = document.getElementById('extrument-payload') as HTMLSpanElement;
 const extrumentConnectButton = document.getElementById('extrument-connect') as HTMLButtonElement;
+const extrumentCalibrationEl = document.getElementById('extrument-calibration') as HTMLSpanElement;
+const extrumentCalibrateButton = document.getElementById('extrument-calibrate') as HTMLButtonElement;
+const extrumentClearCalibrationButton = document.getElementById('extrument-clear-calibration') as HTMLButtonElement;
 
 if (
   !canvas ||
@@ -62,7 +76,10 @@ if (
   !extrumentStatusEl ||
   !extrumentOutputEl ||
   !extrumentPayloadEl ||
-  !extrumentConnectButton
+  !extrumentConnectButton ||
+  !extrumentCalibrationEl ||
+  !extrumentCalibrateButton ||
+  !extrumentClearCalibrationButton
 ) {
   throw new Error('Required DOM nodes are missing');
 }
@@ -97,6 +114,24 @@ const pspStream = new LocalPspStream();
 const focusDirector = new FocusDirector(geometryController, rotationBus, { fallbackGeometry: 'tesseract' });
 const MAX_PENDING_FRAMES = 48;
 
+let extrumentCalibration: ExtrumentCalibration = cloneCalibration();
+let extrumentCalibrationActive = false;
+
+try {
+  if (typeof localStorage !== 'undefined') {
+    const rawCalibration = localStorage.getItem(EXTRUMENT_CALIBRATION_STORAGE_KEY);
+    if (rawCalibration) {
+      const parsed = deserializeCalibration(JSON.parse(rawCalibration));
+      if (parsed && hasCalibration(parsed)) {
+        extrumentCalibration = cloneCalibration(parsed);
+        extrumentCalibrationActive = true;
+      }
+    }
+  }
+} catch (error) {
+  console.warn('Failed to load extrument calibration', error);
+}
+
 const extrumentHub = new ExtrumentHub<NormalizedSnapshot>({
   transform: normalizeSnapshot,
   onError: (error, adapter) => {
@@ -111,7 +146,10 @@ let extrumentConnected = false;
 const extrumentDisconnectors: Array<() => void> = [];
 
 rotationBus.subscribe(snapshot => {
-  const normalized = normalizeSnapshot(snapshot);
+  const extrumentSnapshot = extrumentCalibrationActive
+    ? applyCalibration(snapshot, extrumentCalibration)
+    : { ...snapshot };
+  const normalized = normalizeSnapshot(extrumentSnapshot);
   lastExtrumentSummary = describeSnapshot(normalized);
   extrumentPayloadEl.textContent = lastExtrumentSummary;
   void extrumentHub.broadcastPayload(normalized);
@@ -171,6 +209,22 @@ function persistManifest() {
     localStorage.setItem(DATASET_MANIFEST_STORAGE_KEY, JSON.stringify(manifest));
   } catch (error) {
     console.warn('Failed to persist dataset manifest', error);
+  }
+}
+
+function persistExtrumentCalibration() {
+  try {
+    if (typeof localStorage === 'undefined') {
+      return;
+    }
+    if (!extrumentCalibrationActive) {
+      localStorage.removeItem(EXTRUMENT_CALIBRATION_STORAGE_KEY);
+      return;
+    }
+    const payload = serializeCalibration(extrumentCalibration);
+    localStorage.setItem(EXTRUMENT_CALIBRATION_STORAGE_KEY, JSON.stringify(payload));
+  } catch (error) {
+    console.warn('Failed to persist extrument calibration', error);
   }
 }
 
@@ -249,6 +303,7 @@ function updateExtrumentStatus() {
     if (!extrumentConnected) {
       extrumentOutputEl.textContent = '–';
     }
+    updateExtrumentCalibrationTelemetry();
     return;
   }
   const connected = states.filter(state => state.connected);
@@ -261,6 +316,27 @@ function updateExtrumentStatus() {
     .map(state => extrumentAdapterLabels.get(state.id) ?? state.id.replace(/^midi:/, ''))
     .join(', ');
   extrumentOutputEl.textContent = labels || '–';
+  updateExtrumentCalibrationTelemetry();
+}
+
+function updateExtrumentCalibrationTelemetry() {
+  if (!extrumentCalibrationActive || !hasCalibration(extrumentCalibration)) {
+    extrumentCalibrationEl.textContent = '–';
+    extrumentCalibrationEl.title = 'Extrument calibration not set';
+    extrumentClearCalibrationButton.disabled = true;
+    extrumentCalibrateButton.textContent = 'Zero Extrument Output';
+    return;
+  }
+  const summary = calibrationSummary(extrumentCalibration);
+  const formattedTime = new Date(extrumentCalibration.timestamp).toLocaleTimeString(undefined, {
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit'
+  });
+  extrumentCalibrationEl.textContent = `Zeroed ${formattedTime}`;
+  extrumentCalibrationEl.title = summary;
+  extrumentClearCalibrationButton.disabled = false;
+  extrumentCalibrateButton.textContent = 'Re-zero Extrument Output';
 }
 
 updateRotationLabels = createRotationControls(rotationControlsContainer, manualOffsets, () => {
@@ -271,6 +347,35 @@ pushRotationSnapshot(performance.now());
 
 extrumentConnectButton.addEventListener('click', () => {
   void connectExtruments();
+});
+
+extrumentCalibrateButton.addEventListener('click', () => {
+  const calibration = createCalibrationFromSnapshot(rotationState, {
+    confidence: rotationState.confidence,
+    timestamp: Date.now()
+  });
+  extrumentCalibration = calibration;
+  extrumentCalibrationActive = hasCalibration(calibration);
+  persistExtrumentCalibration();
+  updateExtrumentCalibrationTelemetry();
+  const recalibrated = extrumentCalibrationActive
+    ? applyCalibration(rotationState, extrumentCalibration)
+    : { ...rotationState };
+  const normalized = normalizeSnapshot(recalibrated);
+  lastExtrumentSummary = describeSnapshot(normalized);
+  extrumentPayloadEl.textContent = lastExtrumentSummary;
+  void extrumentHub.broadcastPayload(normalized);
+});
+
+extrumentClearCalibrationButton.addEventListener('click', () => {
+  extrumentCalibration = cloneCalibration();
+  extrumentCalibrationActive = false;
+  persistExtrumentCalibration();
+  updateExtrumentCalibrationTelemetry();
+  const normalized = normalizeSnapshot(rotationState);
+  lastExtrumentSummary = describeSnapshot(normalized);
+  extrumentPayloadEl.textContent = lastExtrumentSummary;
+  void extrumentHub.broadcastPayload(normalized);
 });
 
 updateExtrumentStatus();

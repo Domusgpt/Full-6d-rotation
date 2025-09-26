@@ -2,6 +2,15 @@ import { mapImuPacket, type ImuPacket } from './imuMapper';
 import type { RotationSnapshot } from '../core/rotationUniforms';
 import type { PlaneMappingProfile } from './profiles';
 import { DEFAULT_PROFILE } from './profiles';
+import {
+  EMPTY_CALIBRATION,
+  applyCalibration,
+  cloneCalibration,
+  combineCalibrations,
+  createCalibrationFromSnapshot,
+  hasCalibration,
+  type ExtrumentCalibration
+} from './calibration';
 
 export type Preprocessor = (packet: ImuPacket) => ImuPacket;
 export type SnapshotListener = (snapshot: RotationSnapshot) => void;
@@ -9,6 +18,8 @@ export type SnapshotListener = (snapshot: RotationSnapshot) => void;
 export interface ParseratorOptions {
   profile?: PlaneMappingProfile;
   confidenceFloor?: number;
+  calibration?: ExtrumentCalibration;
+  calibrationBlend?: number;
 }
 
 export class Parserator {
@@ -17,10 +28,15 @@ export class Parserator {
   private lastTimestamp = 0;
   private readonly profile: PlaneMappingProfile;
   private readonly confidenceFloor: number;
+  private calibration: ExtrumentCalibration;
+  private readonly calibrationBlend: number;
+  private scratchSnapshot: RotationSnapshot | null = null;
 
   constructor(options: ParseratorOptions = {}) {
     this.profile = options.profile ?? DEFAULT_PROFILE;
     this.confidenceFloor = options.confidenceFloor ?? 0.6;
+    this.calibration = cloneCalibration(options.calibration ?? EMPTY_CALIBRATION);
+    this.calibrationBlend = options.calibrationBlend ?? 0.85;
   }
 
   registerPreprocessor(fn: Preprocessor) {
@@ -43,8 +59,16 @@ export class Parserator {
     snapshot.confidence = Math.max(snapshot.confidence, this.confidenceFloor);
     this.applyProfile(snapshot, processed);
 
+    if (hasCalibration(this.calibration)) {
+      this.scratchSnapshot = applyCalibration(snapshot, this.calibration, this.scratchSnapshot ?? { ...snapshot });
+    } else {
+      this.scratchSnapshot = { ...snapshot };
+    }
+
+    this.scratchSnapshot.confidence = Math.max(this.scratchSnapshot.confidence, this.confidenceFloor);
+
     for (const listener of this.listeners) {
-      listener({ ...snapshot });
+      listener({ ...this.scratchSnapshot });
     }
   }
 
@@ -83,6 +107,28 @@ export class Parserator {
   private applySmoothing(current: number, incoming: number, smoothing = 0): number {
     if (smoothing <= 0) return incoming;
     return current * smoothing + incoming * (1 - smoothing);
+  }
+
+  getCalibration(): ExtrumentCalibration {
+    return cloneCalibration(this.calibration);
+  }
+
+  setCalibration(calibration?: ExtrumentCalibration | null) {
+    this.calibration = cloneCalibration(calibration ?? EMPTY_CALIBRATION);
+  }
+
+  clearCalibration() {
+    this.calibration = cloneCalibration(EMPTY_CALIBRATION);
+  }
+
+  captureCalibration(snapshot: RotationSnapshot, blend = this.calibrationBlend): ExtrumentCalibration {
+    const sample = createCalibrationFromSnapshot(snapshot);
+    if (!hasCalibration(this.calibration)) {
+      this.calibration = sample;
+      return cloneCalibration(this.calibration);
+    }
+    this.calibration = combineCalibrations(this.calibration, sample, blend);
+    return cloneCalibration(this.calibration);
   }
 }
 
