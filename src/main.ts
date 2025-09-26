@@ -5,6 +5,11 @@ import { type GeometryId } from './pipeline/geometryCatalog';
 import { RotationBus } from './pipeline/rotationBus';
 import { GeometryController } from './pipeline/geometryController';
 import { DatasetExportService } from './pipeline/datasetExport';
+import {
+  DatasetManifestBuilder,
+  DATASET_MANIFEST_STORAGE_KEY,
+  type DatasetManifest
+} from './pipeline/datasetManifest';
 import { LocalPspStream } from './pipeline/pspStream';
 import { FocusDirector } from './pipeline/focusDirector';
 import { LatencyTracker } from './pipeline/latencyTracker';
@@ -30,6 +35,8 @@ const uniformLatencyEl = document.getElementById('uniform-latency') as HTMLSpanE
 const captureLatencyEl = document.getElementById('capture-latency') as HTMLSpanElement;
 const encodeLatencyEl = document.getElementById('encode-latency') as HTMLSpanElement;
 const datasetFormatEl = document.getElementById('dataset-format') as HTMLSpanElement;
+const manifestFramesEl = document.getElementById('manifest-frames') as HTMLSpanElement;
+const manifestP95El = document.getElementById('manifest-p95') as HTMLSpanElement;
 const extrumentStatusEl = document.getElementById('extrument-status') as HTMLSpanElement;
 const extrumentOutputEl = document.getElementById('extrument-output') as HTMLSpanElement;
 const extrumentPayloadEl = document.getElementById('extrument-payload') as HTMLSpanElement;
@@ -50,6 +57,8 @@ if (
   !captureLatencyEl ||
   !encodeLatencyEl ||
   !datasetFormatEl ||
+  !manifestFramesEl ||
+  !manifestP95El ||
   !extrumentStatusEl ||
   !extrumentOutputEl ||
   !extrumentPayloadEl ||
@@ -70,6 +79,20 @@ const latencyTracker = new LatencyTracker();
 const datasetExport = new DatasetExportService({
   onLatencySample: latency => latencyTracker.recordEncode(latency)
 });
+
+let persistedManifest: DatasetManifest | undefined;
+try {
+  if (typeof localStorage !== 'undefined') {
+    const raw = localStorage.getItem(DATASET_MANIFEST_STORAGE_KEY);
+    if (raw) {
+      persistedManifest = JSON.parse(raw) as DatasetManifest;
+    }
+  }
+} catch (error) {
+  console.warn('Failed to load dataset manifest', error);
+}
+
+const manifestBuilder = new DatasetManifestBuilder({ hydrateFrom: persistedManifest });
 const pspStream = new LocalPspStream();
 const focusDirector = new FocusDirector(geometryController, rotationBus, { fallbackGeometry: 'tesseract' });
 const MAX_PENDING_FRAMES = 48;
@@ -130,6 +153,27 @@ function formatLatency(avg: number, max: number) {
   return `${avg.toFixed(1)} ms (max ${max.toFixed(1)})`;
 }
 
+function updateManifestTelemetry() {
+  const manifest = manifestBuilder.getManifest();
+  manifestFramesEl.textContent = manifest.stats.totalFrames.toString();
+  manifestP95El.textContent =
+    manifest.stats.totalFrames && manifest.stats.p95TotalLatencyMs
+      ? `${manifest.stats.p95TotalLatencyMs.toFixed(1)} ms`
+      : '–';
+}
+
+function persistManifest() {
+  try {
+    if (typeof localStorage === 'undefined') {
+      return;
+    }
+    const manifest = manifestBuilder.getManifest();
+    localStorage.setItem(DATASET_MANIFEST_STORAGE_KEY, JSON.stringify(manifest));
+  } catch (error) {
+    console.warn('Failed to persist dataset manifest', error);
+  }
+}
+
 function updateTelemetry() {
   const uniformMetrics = core.getUniformMetrics();
   uniformUploadsEl.textContent = `${uniformMetrics.uploads}/${uniformMetrics.enqueued}`;
@@ -145,6 +189,7 @@ function updateTelemetry() {
   datasetPendingEl.textContent = datasetMetrics.pending.toString();
   datasetTotalEl.textContent = datasetMetrics.totalEncoded.toString();
   datasetFormatEl.textContent = datasetMetrics.lastFormat ?? '–';
+  updateManifestTelemetry();
 }
 
 async function connectExtruments() {
@@ -229,6 +274,7 @@ extrumentConnectButton.addEventListener('click', () => {
 });
 
 updateExtrumentStatus();
+updateManifestTelemetry();
 
 window.addEventListener('beforeunload', () => {
   extrumentDisconnectors.forEach(dispose => dispose());
@@ -318,7 +364,13 @@ setInterval(() => focusDirector.update(performance.now()), 1000);
 setInterval(async () => {
   const frames = await datasetExport.flush();
   if (frames.length) {
-    frames.forEach(frame => pspStream.publish(frame));
+    const metrics = datasetExport.getMetrics();
+    const format = metrics.lastFormat ?? 'image/png';
+    frames.forEach(frame => {
+      manifestBuilder.addFrame(frame.metadata, format);
+      pspStream.publish(frame);
+    });
+    persistManifest();
     updateTelemetry();
   }
 }, 2000);

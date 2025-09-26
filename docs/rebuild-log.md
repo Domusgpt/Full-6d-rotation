@@ -52,3 +52,19 @@ This log captures the follow-on work after the “Implement staged rebuild bluep
 ### Next checkpoints
 - Persist latency envelopes alongside dataset manifests so replay harnesses can compare live runs against recorded totals.
 - Expose histogram/percentile views of the envelope metrics in the control panel for Stage 6 operator dashboards.
+
+## Session – Dataset Manifest Persistence
+
+### What changed
+- **Dataset manifest builder** (`datasetManifest.ts`, tests) – generate deterministic asset names, retain per-frame latency envelopes, and compute aggregate statistics with optional rehydration from previous sessions.
+- **Local storage persistence** (`main.ts`) – hydrate the manifest on load, append entries as PSP exports flush, and guard persistence with error logging when storage is unavailable.
+- **Control-panel telemetry** (`index.html`, `main.ts`) – surface manifest frame counts and p95 latency so operators can monitor archival coverage alongside live export metrics.
+
+### Why these pieces matter
+- The **builder** gives Stage 4+ pipelines a deterministic manifest contract so downstream tooling can reconcile encoded assets with their latency envelopes and rotation snapshots.
+- **Persistence** means operators can stop and resume sessions without losing manifest continuity, satisfying the rebuild blueprint’s requirement for deterministic dataset bookkeeping.
+- The **UI telemetry** closes the loop by exposing archival health directly in the control panel, enabling quick validation that latency percentiles stay within Stage 6 performance budgets.
+
+### Next checkpoints
+- Add manifest export/download affordances so recorded sessions can be archived or shared outside the browser sandbox.
+- Thread manifest statistics into the rebuild telemetry loom once percentile visualisations ship in Stage 6.
