@@ -8,6 +8,9 @@ import type { RotationDynamics } from './core/styleUniforms';
 import { ExtrumentSynth } from './audio/extrumentSynth';
 import { ImuStream } from './pipeline/imuStream';
 import type { ProjectionMode } from './core/projectionBridge';
+import { KerbelizedParserator } from './ingestion/kerbelizedParserator';
+import { createConfidenceFloorFilter } from './ingestion/parserFilters';
+import { mapImuPacket } from './ingestion/imuMapper';
 
 const canvas = document.getElementById('gl-canvas') as HTMLCanvasElement;
 const statusEl = document.getElementById('status') as HTMLParagraphElement;
@@ -69,15 +72,25 @@ rotationBus.subscribe(({ snapshot, dynamics }) => {
   synth.update(snapshot, dynamics);
 });
 
-const rotationState: RotationSnapshot = {
-  ...ZERO_ROTATION,
-  timestamp: performance.now(),
-  confidence: 1
-};
-
 let statusBase = 'Geometry: —';
 let rotationSource = 'Harmonic Orbit';
 let latestDynamics: RotationDynamics | null = null;
+
+const parser = new KerbelizedParserator({
+  channelCount: 128,
+  smoothingAlpha: 0.22,
+  minimumConfidence: 0.25,
+  filters: [createConfidenceFloorFilter({ minimum: 0.25 })]
+});
+
+parser.subscribe((frame) => {
+  const { rotation } = frame;
+  latestDynamics = deriveRotationDynamics(rotation);
+  rotationBus.push({ ...rotation }, latestDynamics);
+  updateRotationLabels(rotation, manualOffsets);
+  updateIndicators(latestDynamics);
+  updateStatus(latestDynamics);
+});
 
 const manualOffsets: RotationAngles = { ...ZERO_ROTATION };
 const autoAngles: RotationAngles = { ...ZERO_ROTATION };
@@ -89,24 +102,23 @@ let externalTimestamp: number | null = null;
 let updateRotationLabels: (combined: RotationAngles, manual: RotationAngles) => void;
 
 function pushRotationSnapshot(frameTimestamp: number) {
-  rotationState.timestamp = externalTimestamp ?? frameTimestamp;
-
   let energy = 0;
+  const combined: RotationSnapshot = {
+    ...ZERO_ROTATION,
+    timestamp: externalTimestamp ?? frameTimestamp,
+    confidence: 1
+  };
+
   for (const plane of SIX_PLANE_KEYS) {
-    rotationState[plane] = autoAngles[plane] + manualOffsets[plane];
-    energy += Math.abs(rotationState[plane]);
+    combined[plane] = autoAngles[plane] + manualOffsets[plane];
+    energy += Math.abs(combined[plane]);
   }
 
   const normalized = Math.min(1, energy / (Math.PI * SIX_PLANE_KEYS.length));
   const fallbackConfidence = 0.75 + 0.25 * (1 - normalized);
-  rotationState.confidence = externalConfidence ?? fallbackConfidence;
+  combined.confidence = externalConfidence ?? fallbackConfidence;
 
-  const dynamics = deriveRotationDynamics(rotationState);
-  latestDynamics = dynamics;
-  rotationBus.push({ ...rotationState }, dynamics);
-  updateRotationLabels(rotationState, manualOffsets);
-  updateIndicators(dynamics);
-  updateStatus(dynamics);
+  parser.ingestRotation(combined);
 }
 
 updateRotationLabels = createRotationControls(rotationControlsContainer, manualOffsets, () => {
@@ -207,7 +219,8 @@ imuToggle.addEventListener('click', () => {
           updateStatus(latestDynamics);
         }
       },
-      onSnapshot: (snapshot) => {
+      onPacket: (packet, dt) => {
+        const snapshot = mapImuPacket(packet, dt, parser.getGainProfile());
         for (const plane of SIX_PLANE_KEYS) {
           autoAngles[plane] = snapshot[plane];
         }

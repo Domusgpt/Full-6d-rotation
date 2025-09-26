@@ -420,6 +420,7 @@ To ensure the six degrees of rotational freedom are implemented correctly and ve
 
 #### 5.3.4 Stage 3 – Data Ingestion & Rotation Mapping
 - **Kerbelized Parserator v2**: Define a standalone ingestion microservice (Node + WebSocket) with pluggable preprocessing (`lowPassGyro`, `gravityIsolation`, `featureWindow`). Outputs normalized `RotationSnapshot` objects with timestamp and confidence.
+- **Implementation Note – Parserator MVP**: The current browser build ships with a Kerbelized Parserator core that packs the six SO(4) planes into a 128-channel UBO slice, applies configurable exponential smoothing, and enforces confidence floors before relaying frames to HypercubeCore. This module is already wired to the IMU WebSocket client, providing the deterministic upload loop required by the CPE.
 - **Sensor Coupling Profiles**: Implement `PlaneMappingProfile` records that map IMU channels to rotation planes with per-axis gain, clamp, and smoothing coefficients.
 - **Deterministic UBO Updates**: Within HypercubeCore, integrate a `UniformSyncQueue` that batches exactly one UBO upload per animation frame, guarded by dirty flags and measured via performance counters.
 - **Harmonic Rotation Loom**: Ship a default six-plane oscillator that weaves golden-ratio frequency ratios across spatial and hyperspatial planes so the Extrument always exposes a musically coherent SO(4) flow even before live sensors attach.

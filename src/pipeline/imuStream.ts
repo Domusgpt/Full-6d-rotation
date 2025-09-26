@@ -1,14 +1,12 @@
-import { mapImuPacket, type ImuPacket, type MappingGains } from '../ingestion/imuMapper';
-import type { RotationSnapshot } from '../core/rotationUniforms';
+import type { ImuPacket } from '../ingestion/imuMapper';
 
 type StatusCallback = (status: string) => void;
 
-type SnapshotCallback = (snapshot: RotationSnapshot) => void;
+type PacketCallback = (packet: ImuPacket, dt: number) => void;
 
 export interface ImuStreamOptions {
   url: string;
-  gains?: MappingGains;
-  onSnapshot: SnapshotCallback;
+  onPacket: PacketCallback;
   onStatus?: StatusCallback;
   reconnectIntervalMs?: number;
 }
@@ -100,8 +98,7 @@ export class ImuStream {
     }
 
     const dt = this.computeDeltaSeconds(packet.timestamp);
-    const snapshot = mapImuPacket(packet, dt, this.options.gains);
-    this.options.onSnapshot(snapshot);
+    this.options.onPacket(packet, dt);
   }
 
   private computeDeltaSeconds(timestampMs: number): number {
