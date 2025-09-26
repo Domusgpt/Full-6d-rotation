@@ -7,7 +7,10 @@ export async function encodeFrameToBlob(frame: FramePayload, format: FrameFormat
     if (!context) {
       throw new Error('Unable to allocate offscreen context');
     }
-    const imageData = new ImageData(frame.pixels, frame.width, frame.height);
+    const pixels =
+      frame.pixels instanceof Uint8ClampedArray ? frame.pixels : new Uint8ClampedArray(frame.pixels);
+    const imageData = context.createImageData(frame.width, frame.height);
+    imageData.data.set(pixels);
     context.putImageData(imageData, 0, 0);
     return canvas.convertToBlob({ type: format });
   }

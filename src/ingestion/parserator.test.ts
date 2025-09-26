@@ -28,9 +28,9 @@ const identityProfile: PlaneMappingProfile = {
 describe('Parserator', () => {
   it('applies preprocessors and enforces the confidence floor', () => {
     const parserator = new Parserator({ profile: identityProfile, confidenceFloor: 0.6 });
-    const preprocessor = vi.fn((packet: ImuPacket) => ({
+    const preprocessor = vi.fn((packet: ImuPacket): ImuPacket => ({
       ...packet,
-      gyro: [1, 2, 3]
+      gyro: [1, 2, 3] as [number, number, number]
     }));
     parserator.registerPreprocessor(preprocessor, { id: 'mock-preprocessor' });
 

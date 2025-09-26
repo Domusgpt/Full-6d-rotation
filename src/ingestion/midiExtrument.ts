@@ -4,7 +4,7 @@ import type { ExtrumentAdapter, NormalizedSnapshot } from './extrumentHub';
 export interface MidiOutputLike {
   id: string;
   name?: string;
-  send(message: number[], timestamp?: number): void;
+  send(message?: number[] | Uint8Array, timestamp?: number): void;
 }
 
 export interface MidiExtrumentOptions {

@@ -112,11 +112,13 @@ if (
   throw new Error('Required DOM nodes are missing');
 }
 
-const manifestConfidenceTrendCtx = manifestConfidenceTrendCanvas.getContext('2d');
-
-if (!manifestConfidenceTrendCtx) {
-  throw new Error('Unable to create manifest confidence trend context');
-}
+const manifestConfidenceTrendCtx = (() => {
+  const context = manifestConfidenceTrendCanvas.getContext('2d');
+  if (!context) {
+    throw new Error('Unable to create manifest confidence trend context');
+  }
+  return context;
+})();
 
 const core = new HypercubeCore(canvas, {
   projectionDepth: Number(projectionDepthSlider.value),
@@ -752,7 +754,19 @@ async function connectExtruments() {
     }
 
     const adapters = await discoverMidiAdapters({
-      accessFactory: () => navigatorWithMidi.requestMIDIAccess!()
+      accessFactory: async () => {
+        const access = await navigatorWithMidi.requestMIDIAccess!();
+        return {
+          outputs: Array.from(access.outputs.values()).map(output => ({
+            id: output.id,
+            name: output.name ?? undefined,
+            send: (message?: number[] | Uint8Array, timestamp?: number) => {
+              const payload = message ?? [];
+              output.send(payload, timestamp);
+            }
+          }))
+        };
+      }
     });
 
     if (!adapters.length) {

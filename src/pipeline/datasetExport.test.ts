@@ -24,16 +24,16 @@ interface WorkerResponse {
   error?: string;
 }
 
-class FakeWorker extends EventTarget implements Worker {
+class FakeWorker extends EventTarget {
   onmessage: ((this: Worker, ev: MessageEvent<WorkerResponse>) => unknown) | null = null;
-  onerror: ((this: Worker, ev: ErrorEvent) => unknown) | null = null;
+  onerror: ((this: AbstractWorker, ev: ErrorEvent) => any) | null = null;
   onmessageerror: ((this: Worker, ev: MessageEvent) => unknown) | null = null;
 
   constructor(private readonly handler: (data: WorkerRequest) => Promise<WorkerResponse>) {
     super();
   }
 
-  postMessage(message: WorkerRequest, _transfer?: Transferable[]): void {
+  postMessage(message: WorkerRequest, _transfer?: Transferable[] | StructuredSerializeOptions): void {
     void this.handler(message)
       .then(response => {
         this.onmessage?.call(this, { data: response } as MessageEvent<WorkerResponse>);

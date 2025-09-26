@@ -21,10 +21,11 @@ const snapshot: NormalizedSnapshot = {
 
 describe('MidiExtrumentAdapter', () => {
   it('sends control change messages for each plane', async () => {
-    const sent: number[][] = [];
+    const sent: (number[] | Uint8Array)[] = [];
     const output: MidiOutputLike = {
       id: 'out-1',
       send: (message) => {
+        if (!message) return;
         sent.push(message);
       }
     };
@@ -32,8 +33,9 @@ describe('MidiExtrumentAdapter', () => {
     await adapter.connect();
     await adapter.send(snapshot);
     expect(sent).toHaveLength(8); // 6 planes + magnitude + confidence
-    expect(sent[0][1]).toBe(20);
-    expect(sent[0][2]).toBeGreaterThanOrEqual(0);
+    const first = Array.from(sent[0]);
+    expect(first[1]).toBe(20);
+    expect(first[2]).toBeGreaterThanOrEqual(0);
     expect(adapter.label).toBe('out-1');
   });
 });
