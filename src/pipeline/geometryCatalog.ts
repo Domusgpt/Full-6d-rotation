@@ -1,8 +1,9 @@
+import { SixHundredCellGeometry } from '../geometry/sixHundredCell';
 import { TesseractGeometry } from '../geometry/tesseract';
 import { TwentyFourCellGeometry } from '../geometry/twentyFourCell';
 import type { GeometryData, GeometryDescriptor } from '../geometry/types';
 
-export type GeometryId = 'tesseract' | 'twentyFourCell';
+export type GeometryId = 'tesseract' | 'twentyFourCell' | 'sixHundredCell';
 
 const CATALOG: Record<GeometryId, GeometryDescriptor> = {
   tesseract: {
@@ -14,6 +15,11 @@ const CATALOG: Record<GeometryId, GeometryDescriptor> = {
     id: 'twentyFourCell',
     name: '24-Cell',
     data: TwentyFourCellGeometry
+  },
+  sixHundredCell: {
+    id: 'sixHundredCell',
+    name: '600-Cell',
+    data: SixHundredCellGeometry
   }
 };
 
