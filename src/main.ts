@@ -26,6 +26,15 @@ import {
   type NormalizedSnapshot
 } from './ingestion/extrumentHub';
 import { discoverMidiAdapters } from './ingestion/midiExtrument';
+import {
+  Parserator,
+  gravityIsolation,
+  lowPassGyro,
+  featureWindow,
+  type PreprocessorRegistration,
+  type Preprocessor
+} from './ingestion/parserator';
+import { AVAILABLE_PROFILES, DEFAULT_PROFILE, getProfileById } from './ingestion/profiles';
 
 const canvas = document.getElementById('gl-canvas') as HTMLCanvasElement;
 const statusEl = document.getElementById('status') as HTMLParagraphElement;
@@ -44,6 +53,12 @@ const datasetFormatEl = document.getElementById('dataset-format') as HTMLSpanEle
 const manifestFramesEl = document.getElementById('manifest-frames') as HTMLSpanElement;
 const manifestP95El = document.getElementById('manifest-p95') as HTMLSpanElement;
 const manifestDownloadButton = document.getElementById('manifest-download') as HTMLButtonElement;
+const parseratorProfileNameEl = document.getElementById('parserator-profile-name') as HTMLSpanElement;
+const parseratorProfileSelect = document.getElementById('parserator-profile-select') as HTMLSelectElement;
+const parseratorConfidenceValueEl = document.getElementById('parserator-confidence-value') as HTMLSpanElement;
+const parseratorConfidenceInput = document.getElementById('parserator-confidence-input') as HTMLInputElement;
+const parseratorPreprocessorsEl = document.getElementById('parserator-preprocessors') as HTMLSpanElement;
+const parseratorPreprocessorContainer = document.getElementById('parserator-preprocessor-controls') as HTMLDivElement;
 const extrumentStatusEl = document.getElementById('extrument-status') as HTMLSpanElement;
 const extrumentOutputEl = document.getElementById('extrument-output') as HTMLSpanElement;
 const extrumentPayloadEl = document.getElementById('extrument-payload') as HTMLSpanElement;
@@ -67,6 +82,12 @@ if (
   !manifestFramesEl ||
   !manifestP95El ||
   !manifestDownloadButton ||
+  !parseratorProfileNameEl ||
+  !parseratorProfileSelect ||
+  !parseratorConfidenceValueEl ||
+  !parseratorConfidenceInput ||
+  !parseratorPreprocessorsEl ||
+  !parseratorPreprocessorContainer ||
   !extrumentStatusEl ||
   !extrumentOutputEl ||
   !extrumentPayloadEl ||
@@ -118,12 +139,86 @@ const extrumentAdapterLabels = new Map<string, string>();
 let extrumentConnected = false;
 const extrumentDisconnectors: Array<() => void> = [];
 
+const parserator = new Parserator();
+
+type PreprocessorOption = {
+  id: string;
+  label: string;
+  description: string;
+  factory: () => Preprocessor;
+};
+
+const PREPROCESSOR_OPTIONS: PreprocessorOption[] = [
+  {
+    id: 'low-pass',
+    label: 'Low-pass gyro',
+    description: 'Smooths gyro spikes with an adaptive exponential filter.',
+    factory: () => lowPassGyro(6)
+  },
+  {
+    id: 'gravity',
+    label: 'Gravity isolation',
+    description: 'Normalises acceleration vectors to isolate orientation cues.',
+    factory: () => gravityIsolation(0.85)
+  },
+  {
+    id: 'feature-window',
+    label: 'Feature window',
+    description: 'Averages the last eight samples to reduce jitter before mapping.',
+    factory: () => featureWindow(8)
+  }
+];
+
+const preprocessorHandles = new Map<string, PreprocessorRegistration>();
+const preprocessorCheckboxes = new Map<string, HTMLInputElement>();
+const preprocessorLookup = new Map(PREPROCESSOR_OPTIONS.map(option => [option.id, option]));
+
 rotationBus.subscribe(snapshot => {
   const normalized = normalizeSnapshot(snapshot);
   lastExtrumentSummary = describeSnapshot(normalized);
   extrumentPayloadEl.textContent = lastExtrumentSummary;
   void extrumentHub.broadcastPayload(normalized);
 });
+
+populateParseratorProfiles();
+renderParseratorPreprocessors();
+
+const hydratedIngestion = persistedManifest?.ingestion;
+if (hydratedIngestion) {
+  const profile = getProfileById(hydratedIngestion.profileId) ?? DEFAULT_PROFILE;
+  parserator.setProfile(profile);
+  parserator.setConfidenceFloor(hydratedIngestion.confidenceFloor);
+  for (const id of hydratedIngestion.preprocessors) {
+    const option = preprocessorLookup.get(id);
+    if (option) {
+      setPreprocessorState(option, true, false);
+    }
+  }
+} else {
+  parserator.setProfile(DEFAULT_PROFILE);
+}
+
+parseratorProfileSelect.addEventListener('change', event => {
+  const target = event.target as HTMLSelectElement;
+  const profile = getProfileById(target.value) ?? DEFAULT_PROFILE;
+  parserator.setProfile(profile);
+  updateParseratorTelemetry();
+  persistIngestionConfig();
+});
+
+parseratorConfidenceInput.addEventListener('input', () => {
+  setConfidenceFloor(Number(parseratorConfidenceInput.value), false);
+});
+
+parseratorConfidenceInput.addEventListener('change', () => {
+  setConfidenceFloor(Number(parseratorConfidenceInput.value), true);
+});
+
+updateParseratorTelemetry();
+
+if (!hydratedIngestion) {
+  persistIngestionConfig();
+}
 
 const rotationState: RotationSnapshot = {
   ...ZERO_ROTATION,
@@ -180,6 +275,106 @@ function persistManifest() {
     localStorage.setItem(DATASET_MANIFEST_STORAGE_KEY, JSON.stringify(manifest));
   } catch (error) {
     console.warn('Failed to persist dataset manifest', error);
+  }
+}
+
+function populateParseratorProfiles() {
+  parseratorProfileSelect.innerHTML = '';
+  for (const profile of AVAILABLE_PROFILES) {
+    const option = document.createElement('option');
+    option.value = profile.id;
+    option.textContent = profile.name;
+    parseratorProfileSelect.appendChild(option);
+  }
+}
+
+function renderParseratorPreprocessors() {
+  parseratorPreprocessorContainer.innerHTML = '';
+  preprocessorCheckboxes.clear();
+
+  for (const option of PREPROCESSOR_OPTIONS) {
+    const label = document.createElement('label');
+    label.className = 'parserator-toggle';
+
+    const checkbox = document.createElement('input');
+    checkbox.type = 'checkbox';
+    checkbox.value = option.id;
+    checkbox.addEventListener('change', () => {
+      setPreprocessorState(option, checkbox.checked);
+    });
+
+    const textContainer = document.createElement('div');
+    const title = document.createElement('span');
+    title.textContent = option.label;
+    const hint = document.createElement('small');
+    hint.textContent = option.description;
+    textContainer.appendChild(title);
+    textContainer.appendChild(hint);
+
+    label.appendChild(checkbox);
+    label.appendChild(textContainer);
+    parseratorPreprocessorContainer.appendChild(label);
+    preprocessorCheckboxes.set(option.id, checkbox);
+  }
+}
+
+function setPreprocessorState(option: PreprocessorOption, enabled: boolean, persist = true) {
+  const current = preprocessorHandles.get(option.id);
+  if (enabled && !current) {
+    const registration = parserator.registerPreprocessor(option.factory(), { id: option.id });
+    preprocessorHandles.set(option.id, registration);
+  } else if (!enabled && current) {
+    current.dispose();
+    preprocessorHandles.delete(option.id);
+  }
+
+  updateParseratorTelemetry();
+
+  if (persist) {
+    persistIngestionConfig();
+  }
+}
+
+function setConfidenceFloor(value: number, persist = true) {
+  const clamped = Math.min(1, Math.max(0, Number.isFinite(value) ? value : parserator.getConfidenceFloor()));
+  parserator.setConfidenceFloor(clamped);
+  updateParseratorTelemetry();
+  if (persist) {
+    persistIngestionConfig();
+  }
+}
+
+function persistIngestionConfig() {
+  const profile = parserator.getProfile();
+  manifestBuilder.updateIngestionConfig({
+    profileId: profile.id,
+    profileName: profile.name,
+    confidenceFloor: parserator.getConfidenceFloor(),
+    preprocessors: parserator.listPreprocessors()
+  });
+  persistManifest();
+}
+
+function updateParseratorTelemetry() {
+  const profile = parserator.getProfile();
+  parseratorProfileNameEl.textContent = profile.name;
+  parseratorProfileSelect.value = profile.id;
+
+  const confidence = parserator.getConfidenceFloor();
+  parseratorConfidenceValueEl.textContent = confidence.toFixed(2);
+  parseratorConfidenceInput.value = confidence.toFixed(2);
+
+  const activeIds = parserator.listPreprocessors();
+  if (!activeIds.length) {
+    parseratorPreprocessorsEl.textContent = '–';
+  } else {
+    parseratorPreprocessorsEl.textContent = activeIds
+      .map(id => preprocessorLookup.get(id)?.label ?? id)
+      .join(', ');
+  }
+
+  for (const [id, checkbox] of preprocessorCheckboxes) {
+    checkbox.checked = preprocessorHandles.has(id);
   }
 }
 

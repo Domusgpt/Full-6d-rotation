@@ -17,12 +17,21 @@ export interface DatasetManifestStatistics {
   lastUpdated: number;
 }
 
+export interface DatasetIngestionConfig {
+  profileId: string;
+  profileName?: string;
+  confidenceFloor: number;
+  preprocessors: string[];
+  updatedAt: number;
+}
+
 export interface DatasetManifest {
   id: string;
   createdAt: number;
   prefix: string;
   frames: DatasetManifestFrame[];
   stats: DatasetManifestStatistics;
+  ingestion?: DatasetIngestionConfig;
 }
 
 export interface DatasetManifestBuilderOptions {
@@ -107,6 +116,13 @@ export class DatasetManifestBuilder {
 
   getManifest(): DatasetManifest {
     return cloneManifest(this.manifest);
+  }
+
+  updateIngestionConfig(config: Omit<DatasetIngestionConfig, 'updatedAt'>): void {
+    this.manifest.ingestion = {
+      ...config,
+      updatedAt: Date.now()
+    };
   }
 
   private createAssetName(format: FrameFormat): string {

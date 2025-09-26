@@ -107,4 +107,22 @@ describe('DatasetManifestBuilder', () => {
 
     vi.useRealTimers();
   });
+
+  it('records and rehydrates parserator ingestion metadata', () => {
+    const builder = new DatasetManifestBuilder({ sessionId: 'ingestion-session' });
+    builder.updateIngestionConfig({
+      profileId: 'default-imu',
+      profileName: 'Default IMU',
+      confidenceFloor: 0.65,
+      preprocessors: ['low-pass', 'gravity']
+    });
+
+    const manifest = builder.getManifest();
+    expect(manifest.ingestion?.profileId).toBe('default-imu');
+    expect(manifest.ingestion?.preprocessors).toEqual(['low-pass', 'gravity']);
+    expect(manifest.ingestion?.updatedAt).toBeGreaterThan(0);
+
+    const rehydrated = new DatasetManifestBuilder({ hydrateFrom: manifest });
+    expect(rehydrated.getManifest().ingestion?.profileId).toBe('default-imu');
+  });
 });

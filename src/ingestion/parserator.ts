@@ -6,29 +6,43 @@ import { DEFAULT_PROFILE } from './profiles';
 export type Preprocessor = (packet: ImuPacket) => ImuPacket;
 export type SnapshotListener = (snapshot: RotationSnapshot) => void;
 
+export interface PreprocessorOptions {
+  id?: string;
+}
+
+export interface PreprocessorRegistration {
+  id: string;
+  dispose: () => void;
+}
+
 export interface ParseratorOptions {
   profile?: PlaneMappingProfile;
   confidenceFloor?: number;
 }
 
 export class Parserator {
-  private preprocessors: Preprocessor[] = [];
+  private preprocessors: Array<{ id: string; handler: Preprocessor }> = [];
   private listeners = new Set<SnapshotListener>();
   private lastTimestamp = 0;
   private profile: PlaneMappingProfile;
   private confidenceFloor: number;
+  private preprocessorCounter = 0;
 
   constructor(options: ParseratorOptions = {}) {
     this.profile = options.profile ?? DEFAULT_PROFILE;
     this.confidenceFloor = options.confidenceFloor ?? 0.6;
   }
 
-  registerPreprocessor(fn: Preprocessor): () => void {
-    this.preprocessors.push(fn);
-    return () => {
-      const index = this.preprocessors.indexOf(fn);
-      if (index >= 0) {
-        this.preprocessors.splice(index, 1);
+  registerPreprocessor(fn: Preprocessor, options: PreprocessorOptions = {}): PreprocessorRegistration {
+    const id = options.id ?? `preprocessor-${++this.preprocessorCounter}`;
+    this.preprocessors.push({ id, handler: fn });
+    return {
+      id,
+      dispose: () => {
+        const index = this.preprocessors.findIndex(entry => entry.id === id);
+        if (index >= 0) {
+          this.preprocessors.splice(index, 1);
+        }
       }
     };
   }
@@ -46,10 +60,22 @@ export class Parserator {
     this.confidenceFloor = confidence;
   }
 
+  getProfile(): PlaneMappingProfile {
+    return this.profile;
+  }
+
+  getConfidenceFloor(): number {
+    return this.confidenceFloor;
+  }
+
+  listPreprocessors(): string[] {
+    return this.preprocessors.map(entry => entry.id);
+  }
+
   ingest(packet: ImuPacket) {
     let processed = packet;
-    for (const fn of this.preprocessors) {
-      processed = fn(processed);
+    for (const entry of this.preprocessors) {
+      processed = entry.handler(processed);
     }
 
     const dt = this.computeDelta(processed.timestamp);

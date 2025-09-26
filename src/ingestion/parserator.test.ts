@@ -32,7 +32,7 @@ describe('Parserator', () => {
       ...packet,
       gyro: [1, 2, 3]
     }));
-    parserator.registerPreprocessor(preprocessor);
+    parserator.registerPreprocessor(preprocessor, { id: 'mock-preprocessor' });
 
     const listener = vi.fn();
     parserator.onSnapshot(listener);
@@ -51,13 +51,14 @@ describe('Parserator', () => {
   it('supports unregistering preprocessors via disposer', () => {
     const parserator = new Parserator({ profile: identityProfile });
     const preprocessor = vi.fn((packet: ImuPacket) => packet);
-    const dispose = parserator.registerPreprocessor(preprocessor);
+    const registration = parserator.registerPreprocessor(preprocessor, { id: 'disposable' });
 
     parserator.ingest({ ...basePacket, timestamp: 2_000 });
-    dispose();
+    registration.dispose();
     parserator.ingest({ ...basePacket, timestamp: 3_000 });
 
     expect(preprocessor).toHaveBeenCalledTimes(1);
+    expect(parserator.listPreprocessors()).not.toContain('disposable');
   });
 
   it('switches mapping profiles at runtime', () => {
@@ -114,7 +115,7 @@ describe('Parserator', () => {
     const listener = vi.fn();
     parserator.onSnapshot(listener);
 
-    parserator.registerPreprocessor(gravityIsolation(0.5));
+    parserator.registerPreprocessor(gravityIsolation(0.5), { id: 'gravity' });
 
     const packet: ImuPacket = {
       timestamp: 8_000,
@@ -129,5 +130,25 @@ describe('Parserator', () => {
     expect(snapshot.xw).toBeCloseTo(0, 6);
     expect(snapshot.yw).toBeCloseTo(0, 6);
     expect(snapshot.zw).toBeCloseTo(0.5, 6);
+    expect(parserator.listPreprocessors()).toContain('gravity');
+  });
+
+  it('reports current profile metadata and confidence floor', () => {
+    const parserator = new Parserator({ profile: identityProfile, confidenceFloor: 0.42 });
+    expect(parserator.getProfile().id).toBe('identity');
+    expect(parserator.getConfidenceFloor()).toBeCloseTo(0.42);
+
+    const alternate: PlaneMappingProfile = {
+      id: 'alternate',
+      name: 'Alternate Profile',
+      spatial: identityProfile.spatial,
+      hyperspatial: identityProfile.hyperspatial
+    };
+
+    parserator.setProfile(alternate);
+    parserator.setConfidenceFloor(0.73);
+
+    expect(parserator.getProfile().id).toBe('alternate');
+    expect(parserator.getConfidenceFloor()).toBeCloseTo(0.73);
   });
 });

@@ -101,3 +101,20 @@ This log captures the follow-on work after the “Implement staged rebuild bluep
 ### Next checkpoints
 - Surface active profile metadata in the control panel and expose quick toggles for common calibration profiles.
 - Persist custom confidence floors and preprocessor stacks alongside dataset manifests so replay harnesses reproduce exact ingestion conditions.
+
+## Session – Parserator Console & Ingestion Persistence
+
+### What changed
+- **Control panel telemetry** (`index.html`, `main.ts`) – surfaced the active parserator profile, confidence floor, and enabled preprocessors with live selectors for quick calibration during capture sessions.
+- **Profile registry expansion** (`profiles.ts`, tests) – added high-gain and smoothing presets plus lookup utilities so UI controls and automation can target named profiles.
+- **Manifest ingestion metadata** (`datasetManifest.ts`, tests) – persisted the active profile, confidence floor, and preprocessor stack inside dataset manifests, keeping capture conditions reproducible across sessions.
+- **Parserator introspection** (`parserator.ts`, tests) – exposed profile/confidence getters and deterministic preprocessor IDs so the UI and manifest writer can track live calibration state.
+
+### Why these pieces matter
+- **Inline visibility** keeps operators aware of the ingestion stack feeding the rotation bus, enabling rapid comparisons between presets without diving into code.
+- **Persisted calibration** ensures replay harnesses and downstream ML consumers can rehydrate the exact parserator configuration alongside captured frames, satisfying the rebuild blueprint’s determinism goals.
+- **Named profiles and preprocessors** provide a stable contract for future extrument adapters and parserator microservices to request or advertise calibration presets.
+
+### Next checkpoints
+- Stream parserator events into the telemetry loom so profile swaps and confidence adjustments appear in historical timelines.
+- Allow manifests to capture per-frame confidence histograms, extending ingestion analytics into the dataset export pipeline.
