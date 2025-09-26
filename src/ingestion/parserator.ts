@@ -15,21 +15,35 @@ export class Parserator {
   private preprocessors: Preprocessor[] = [];
   private listeners = new Set<SnapshotListener>();
   private lastTimestamp = 0;
-  private readonly profile: PlaneMappingProfile;
-  private readonly confidenceFloor: number;
+  private profile: PlaneMappingProfile;
+  private confidenceFloor: number;
 
   constructor(options: ParseratorOptions = {}) {
     this.profile = options.profile ?? DEFAULT_PROFILE;
     this.confidenceFloor = options.confidenceFloor ?? 0.6;
   }
 
-  registerPreprocessor(fn: Preprocessor) {
+  registerPreprocessor(fn: Preprocessor): () => void {
     this.preprocessors.push(fn);
+    return () => {
+      const index = this.preprocessors.indexOf(fn);
+      if (index >= 0) {
+        this.preprocessors.splice(index, 1);
+      }
+    };
   }
 
   onSnapshot(listener: SnapshotListener) {
     this.listeners.add(listener);
     return () => this.listeners.delete(listener);
+  }
+
+  setProfile(profile: PlaneMappingProfile): void {
+    this.profile = profile;
+  }
+
+  setConfidenceFloor(confidence: number): void {
+    this.confidenceFloor = confidence;
   }
 
   ingest(packet: ImuPacket) {

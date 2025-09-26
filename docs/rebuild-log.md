@@ -84,3 +84,20 @@ This log captures the follow-on work after the “Implement staged rebuild bluep
 ### Next checkpoints
 - Surface manifest last-updated timestamps directly in the control panel to signal when new frames are ready for export.
 - Bundle PSP frame batches with the manifest download so a single action captures both metadata and imagery for offline review.
+
+## Session – Parserator Calibration Controls
+
+### What changed
+- **Runtime mapping updates** (`parserator.ts`) – allow parserator instances to swap plane-mapping profiles and raise/lower their confidence floor without re-instantiation, keeping calibration live during sessions.
+- **Preprocessor lifecycle** (`parserator.ts`) – return disposal handles when registering preprocessors so temporary filters (e.g., gravity isolation) can be removed cleanly.
+- **Validation tests** (`parserator.test.ts`) – cover preprocessor ordering, profile switching, gravity isolation, and dynamic confidence floors to lock in the new behaviour.
+
+### Why these pieces matter
+- Live **profile switching** supports the rebuild plan’s Stage 3 parserator service, letting operators test alternate IMU mappings or external “extrument” adapters mid-run.
+- **Confidence floor tuning** keeps the rotation bus reliable when sensor noise changes, ensuring downstream uniform queues maintain minimum certainty without restarting the pipeline.
+- **Disposable preprocessors** simplify adaptive filtering—temporary smoothing or isolation filters can be toggled as telemetry warrants.
+- The **test suite** guards the calibration APIs so future refactors keep parserator tooling deterministic and composable for rebuild checkpoints.
+
+### Next checkpoints
+- Surface active profile metadata in the control panel and expose quick toggles for common calibration profiles.
+- Persist custom confidence floors and preprocessor stacks alongside dataset manifests so replay harnesses reproduce exact ingestion conditions.
