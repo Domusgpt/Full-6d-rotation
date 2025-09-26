@@ -8,6 +8,13 @@ import { DatasetExportService } from './pipeline/datasetExport';
 import { LocalPspStream } from './pipeline/pspStream';
 import { FocusDirector } from './pipeline/focusDirector';
 import { LatencyTracker } from './pipeline/latencyTracker';
+import {
+  ExtrumentHub,
+  normalizeSnapshot,
+  describeSnapshot,
+  type NormalizedSnapshot
+} from './ingestion/extrumentHub';
+import { discoverMidiAdapters } from './ingestion/midiExtrument';
 
 const canvas = document.getElementById('gl-canvas') as HTMLCanvasElement;
 const statusEl = document.getElementById('status') as HTMLParagraphElement;
@@ -23,6 +30,10 @@ const uniformLatencyEl = document.getElementById('uniform-latency') as HTMLSpanE
 const captureLatencyEl = document.getElementById('capture-latency') as HTMLSpanElement;
 const encodeLatencyEl = document.getElementById('encode-latency') as HTMLSpanElement;
 const datasetFormatEl = document.getElementById('dataset-format') as HTMLSpanElement;
+const extrumentStatusEl = document.getElementById('extrument-status') as HTMLSpanElement;
+const extrumentOutputEl = document.getElementById('extrument-output') as HTMLSpanElement;
+const extrumentPayloadEl = document.getElementById('extrument-payload') as HTMLSpanElement;
+const extrumentConnectButton = document.getElementById('extrument-connect') as HTMLButtonElement;
 
 if (
   !canvas ||
@@ -38,7 +49,11 @@ if (
   !uniformLatencyEl ||
   !captureLatencyEl ||
   !encodeLatencyEl ||
-  !datasetFormatEl
+  !datasetFormatEl ||
+  !extrumentStatusEl ||
+  !extrumentOutputEl ||
+  !extrumentPayloadEl ||
+  !extrumentConnectButton
 ) {
   throw new Error('Required DOM nodes are missing');
 }
@@ -59,6 +74,26 @@ const pspStream = new LocalPspStream();
 const focusDirector = new FocusDirector(geometryController, rotationBus, { fallbackGeometry: 'tesseract' });
 const MAX_PENDING_FRAMES = 48;
 
+const extrumentHub = new ExtrumentHub<NormalizedSnapshot>({
+  transform: normalizeSnapshot,
+  onError: (error, adapter) => {
+    console.warn('Extrument adapter error', error);
+    extrumentStatusEl.textContent = `Error · ${adapter.id}`;
+    extrumentConnected = false;
+    extrumentConnectButton.disabled = false;
+  }
+});
+const extrumentAdapterLabels = new Map<string, string>();
+let extrumentConnected = false;
+const extrumentDisconnectors: Array<() => void> = [];
+
+rotationBus.subscribe(snapshot => {
+  const normalized = normalizeSnapshot(snapshot);
+  lastExtrumentSummary = describeSnapshot(normalized);
+  extrumentPayloadEl.textContent = lastExtrumentSummary;
+  void extrumentHub.broadcastPayload(normalized);
+});
+
 const rotationState: RotationSnapshot = {
   ...ZERO_ROTATION,
   timestamp: performance.now(),
@@ -69,6 +104,7 @@ const manualOffsets: RotationAngles = { ...ZERO_ROTATION };
 const autoAngles: RotationAngles = { ...ZERO_ROTATION };
 
 let updateRotationLabels: (combined: RotationAngles, manual: RotationAngles) => void;
+let lastExtrumentSummary = '–';
 
 function pushRotationSnapshot(timestamp: number) {
   rotationState.timestamp = timestamp;
@@ -111,11 +147,92 @@ function updateTelemetry() {
   datasetFormatEl.textContent = datasetMetrics.lastFormat ?? '–';
 }
 
+async function connectExtruments() {
+  if (extrumentConnected) {
+    updateExtrumentStatus();
+    return;
+  }
+
+  extrumentConnectButton.disabled = true;
+  extrumentStatusEl.textContent = 'Scanning MIDI…';
+
+  try {
+    const navigatorWithMidi = navigator as Navigator & { requestMIDIAccess?: () => Promise<any> };
+    if (!navigatorWithMidi.requestMIDIAccess) {
+      extrumentStatusEl.textContent = 'WebMIDI unavailable';
+      extrumentConnectButton.disabled = false;
+      return;
+    }
+
+    const adapters = await discoverMidiAdapters({
+      accessFactory: () => navigatorWithMidi.requestMIDIAccess!()
+    });
+
+    if (!adapters.length) {
+      extrumentStatusEl.textContent = 'No MIDI outputs found';
+      extrumentConnectButton.disabled = false;
+      return;
+    }
+
+    extrumentDisconnectors.forEach(dispose => dispose());
+    extrumentDisconnectors.length = 0;
+
+    for (const adapter of adapters) {
+      extrumentAdapterLabels.set(adapter.id, adapter.label ?? adapter.id);
+      const dispose = extrumentHub.register(adapter);
+      extrumentDisconnectors.push(dispose);
+      await extrumentHub.connect(adapter.id);
+    }
+
+    extrumentConnected = true;
+    extrumentStatusEl.textContent = `Connected · ${adapters.length}`;
+    extrumentConnectButton.textContent = 'MIDI Connected';
+    extrumentConnectButton.disabled = true;
+    updateExtrumentStatus();
+    extrumentPayloadEl.textContent = lastExtrumentSummary;
+  } catch (error) {
+    console.error('Failed to connect extruments', error);
+    extrumentStatusEl.textContent = 'Connection failed';
+    extrumentConnectButton.disabled = false;
+  }
+}
+
+function updateExtrumentStatus() {
+  const states = extrumentHub.listAdapters();
+  if (!states.length) {
+    extrumentStatusEl.textContent = extrumentConnected ? 'Connected' : 'Idle';
+    if (!extrumentConnected) {
+      extrumentOutputEl.textContent = '–';
+    }
+    return;
+  }
+  const connected = states.filter(state => state.connected);
+  if (connected.length) {
+    extrumentStatusEl.textContent = `Connected · ${connected.length}`;
+  } else {
+    extrumentStatusEl.textContent = 'Ready';
+  }
+  const labels = states
+    .map(state => extrumentAdapterLabels.get(state.id) ?? state.id.replace(/^midi:/, ''))
+    .join(', ');
+  extrumentOutputEl.textContent = labels || '–';
+}
+
 updateRotationLabels = createRotationControls(rotationControlsContainer, manualOffsets, () => {
   pushRotationSnapshot(performance.now());
 });
 
 pushRotationSnapshot(performance.now());
+
+extrumentConnectButton.addEventListener('click', () => {
+  void connectExtruments();
+});
+
+updateExtrumentStatus();
+
+window.addEventListener('beforeunload', () => {
+  extrumentDisconnectors.forEach(dispose => dispose());
+});
 
 function populateGeometryOptions() {
   const geometries = geometryController.getAvailableGeometries();
