@@ -17,6 +17,12 @@ import {
   type RotationValidationResult
 } from './rotationValidator';
 import type { GeometryData } from '../geometry/types';
+import {
+  applyPlaneWeightsToSnapshot,
+  createPlaneWeights,
+  mergePlaneWeights,
+  type RotationPlaneWeights
+} from './rotationPlanes';
 
 export type RotationSolver = 'sequential' | 'matrix' | 'dualQuaternion';
 
@@ -62,6 +68,7 @@ export class HypercubeCore {
   private lastTimestamp = 0;
   private animationHandle: number | null = null;
   private readonly stagedRotation: RotationSnapshot = { ...ZERO_SNAPSHOT };
+  private readonly maskedRotation: RotationSnapshot = { ...ZERO_SNAPSHOT };
   private rotationDirty = true;
   private readonly stagedDynamics: RotationDynamics = { ...ZERO_DYNAMICS };
   private dynamicsDirty = true;
@@ -70,6 +77,8 @@ export class HypercubeCore {
   private rotationSolverDirty = true;
   private readonly rotationValidation: boolean;
   private lastRotationValidation: RotationValidationResult | null = null;
+  private readonly planeWeights: RotationPlaneWeights = createPlaneWeights();
+  private planeWeightsDirty = false;
 
   private uniforms!: {
     projectionDepth: WebGLUniformLocation;
@@ -217,6 +226,17 @@ export class HypercubeCore {
     this.rotationSolverDirty = true;
   }
 
+  setPlaneWeights(weights: Partial<RotationPlaneWeights> | null | undefined) {
+    if (mergePlaneWeights(this.planeWeights, weights)) {
+      this.planeWeightsDirty = true;
+      this.rotationDirty = true;
+    }
+  }
+
+  getPlaneWeights(): RotationPlaneWeights {
+    return { ...this.planeWeights };
+  }
+
   getRotationValidation(): RotationValidationResult | null {
     if (!this.rotationValidation) {
       return null;
@@ -277,9 +297,11 @@ export class HypercubeCore {
   }
 
   private flushUniformQueues() {
-    if (this.rotationDirty) {
-      this.rotationBuffer.update(this.stagedRotation);
+    if (this.rotationDirty || this.planeWeightsDirty) {
+      applyPlaneWeightsToSnapshot(this.maskedRotation, this.stagedRotation, this.planeWeights);
+      this.rotationBuffer.update(this.maskedRotation);
       this.rotationDirty = false;
+      this.planeWeightsDirty = false;
     }
     if (this.dynamicsDirty) {
       this.styleBuffer.update(this.stagedDynamics);

@@ -87,7 +87,7 @@
         grid-template-columns: repeat(2, minmax(0, 1fr));
         gap: 12px;
       }
-      .plane-card {
+      .plane-card { 
         background: rgba(18, 30, 48, 0.6);
         border: 1px solid rgba(94, 178, 255, 0.18);
         border-radius: 14px;
@@ -139,6 +139,46 @@
       }
       .plane-card[data-direction='pos'] .plane-direction {
         color: rgba(126, 255, 210, 0.92);
+      }
+      .plane-card[data-active='off'] {
+        opacity: 0.35;
+      }
+      .plane-card[data-active='partial'] {
+        opacity: 0.65;
+      }
+      #plane-mask-controls {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 8px;
+      }
+      .mask-toggle {
+        background: rgba(38, 62, 96, 0.6);
+        border: 1px solid rgba(96, 186, 255, 0.3);
+        border-radius: 999px;
+        color: rgba(200, 240, 255, 0.88);
+        font-size: 0.78rem;
+        letter-spacing: 0.08em;
+        padding: 8px 0;
+        cursor: pointer;
+        text-transform: uppercase;
+        transition: background 0.15s ease, border-color 0.15s ease, transform 0.15s ease;
+      }
+      .mask-toggle[data-active='on'] {
+        background: linear-gradient(120deg, rgba(87, 214, 255, 0.25), rgba(156, 107, 255, 0.25));
+        border-color: rgba(126, 214, 255, 0.6);
+        color: rgba(223, 247, 255, 0.95);
+      }
+      .mask-toggle[data-active='partial'] {
+        background: rgba(72, 110, 158, 0.6);
+        border-color: rgba(129, 206, 255, 0.45);
+      }
+      .mask-toggle[data-active='off'] {
+        background: rgba(36, 48, 72, 0.5);
+        border-color: rgba(92, 130, 182, 0.4);
+        color: rgba(142, 176, 210, 0.6);
+      }
+      .mask-toggle:active {
+        transform: translateY(1px);
       }
       .primary-button {
         background: linear-gradient(120deg, rgba(87, 214, 255, 0.9), rgba(156, 107, 255, 0.9));
@@ -220,6 +260,10 @@
         <section class="control-group">
           <label>Plane Energy Weave</label>
           <div id="plane-indicators"></div>
+        </section>
+        <section class="control-group">
+          <label>Plane Contribution Mask</label>
+          <div id="plane-mask-controls"></div>
         </section>
         <button id="audio-toggle" class="primary-button">Enable Sonic Weave</button>
         <p id="audio-status" class="status-note">Audio engine idle. Click to invite the sonic loom.</p>

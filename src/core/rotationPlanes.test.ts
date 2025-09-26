@@ -2,8 +2,14 @@ import { describe, expect, it } from 'vitest';
 import type { RotationAngles } from './rotationUniforms';
 import {
   SIX_PLANE_KEYS,
+  applyPlaneWeights,
+  applyPlaneWeightsToSnapshot,
+  clonePlaneWeights,
   cloneRotationAngles,
+  createPlaneWeights,
+  mergePlaneWeights,
   readRotationChannels,
+  UNIT_PLANE_WEIGHTS,
   writeRotationChannels
 } from './rotationPlanes';
 
@@ -43,5 +49,40 @@ describe('rotationPlanes helpers', () => {
       expect(clone[plane]).toBe(SAMPLE[plane]);
     }
     expect(clone).not.toBe(SAMPLE);
+  });
+
+  it('creates plane weight objects with optional overrides', () => {
+    const weights = createPlaneWeights({ xy: 0.5, zw: 0 });
+    expect(weights.xy).toBeCloseTo(0.5);
+    expect(weights.zw).toBeCloseTo(0);
+    expect(weights.xz).toBe(1);
+  });
+
+  it('merges plane weights and clamps to the [0, 1] range', () => {
+    const weights = clonePlaneWeights(UNIT_PLANE_WEIGHTS);
+    const changed = mergePlaneWeights(weights, { xy: 2, xz: -1, yz: 0.45 });
+    expect(changed).toBe(true);
+    expect(weights.xy).toBe(1);
+    expect(weights.xz).toBe(0);
+    expect(weights.yz).toBeCloseTo(0.45);
+    const unchanged = mergePlaneWeights(weights, { yz: 0.45 });
+    expect(unchanged).toBe(false);
+  });
+
+  it('applies plane weights to rotation angles and snapshots', () => {
+    const weights = createPlaneWeights({ xy: 0.5, xw: 0 });
+    const angles: RotationAngles = { ...SAMPLE };
+    const weighted = applyPlaneWeights({ ...SAMPLE }, angles, weights);
+    expect(weighted.xy).toBeCloseTo(SAMPLE.xy * 0.5);
+    expect(weighted.xw).toBeCloseTo(0);
+
+    const snapshot = applyPlaneWeightsToSnapshot(
+      { ...SAMPLE, timestamp: 12, confidence: 0.8 },
+      { ...SAMPLE, timestamp: 34, confidence: 0.6 },
+      weights
+    );
+    expect(snapshot.timestamp).toBe(34);
+    expect(snapshot.confidence).toBeCloseTo(0.6);
+    expect(snapshot.xy).toBeCloseTo(SAMPLE.xy * 0.5);
   });
 });

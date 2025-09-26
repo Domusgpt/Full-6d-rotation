@@ -1,7 +1,12 @@
 import { HypercubeCore, type RotationSolver } from './core/hypercubeCore';
 import { ZERO_ROTATION, ZERO_SNAPSHOT, type RotationAngles, type RotationSnapshot } from './core/rotationUniforms';
 import { createHarmonicOrbit } from './core/sixPlaneOrbit';
-import { SIX_PLANE_KEYS, type RotationPlane } from './core/rotationPlanes';
+import {
+  SIX_PLANE_KEYS,
+  createPlaneWeights,
+  type RotationPlane,
+  type RotationPlaneWeights
+} from './core/rotationPlanes';
 import { getGeometry, type GeometryId } from './pipeline/geometryCatalog';
 import { RotationBus } from './pipeline/rotationBus';
 import { deriveRotationDynamics } from './core/rotationDynamics';
@@ -24,6 +29,7 @@ const lineWidthSlider = document.getElementById('lineWidth') as HTMLInputElement
 const rotationControlsContainer = document.getElementById('rotation-controls') as HTMLDivElement;
 const styleIndicatorsContainer = document.getElementById('style-indicators') as HTMLDivElement;
 const planeIndicatorsContainer = document.getElementById('plane-indicators') as HTMLDivElement;
+const planeMaskControlsContainer = document.getElementById('plane-mask-controls') as HTMLDivElement;
 const audioToggle = document.getElementById('audio-toggle') as HTMLButtonElement;
 const audioStatus = document.getElementById('audio-status') as HTMLParagraphElement;
 const imuToggle = document.getElementById('imu-toggle') as HTMLButtonElement;
@@ -41,6 +47,7 @@ if (
   !rotationControlsContainer ||
   !styleIndicatorsContainer ||
   !planeIndicatorsContainer ||
+  !planeMaskControlsContainer ||
   !audioToggle ||
   !audioStatus ||
   !imuToggle ||
@@ -73,8 +80,16 @@ if (projectionMode === 'perspective') {
 const rotationBus = new RotationBus();
 const synth = new ExtrumentSynth();
 const updateIndicators = createStyleIndicators(styleIndicatorsContainer);
-const updatePlaneIndicators = createPlaneIndicators(planeIndicatorsContainer);
-updatePlaneIndicators(ZERO_SNAPSHOT);
+const planeIndicators = createPlaneIndicators(planeIndicatorsContainer);
+planeIndicators.updateSnapshot(ZERO_SNAPSHOT);
+const planeMaskControls = createPlaneMaskControls(planeMaskControlsContainer, planeWeights, (weights) => {
+  planeWeights = weights;
+  core.setPlaneWeights(weights);
+  planeIndicators.updateWeights(weights);
+  pushRotationSnapshot(performance.now());
+});
+planeIndicators.updateWeights(planeWeights);
+planeMaskControls.setWeights(planeWeights);
 
 rotationBus.subscribe(({ snapshot, dynamics }) => {
   core.updateRotation(snapshot);
@@ -85,6 +100,7 @@ rotationBus.subscribe(({ snapshot, dynamics }) => {
 let statusBase = 'Geometry: —';
 let rotationSource = 'Harmonic Orbit';
 let latestDynamics: RotationDynamics | null = null;
+let planeWeights: RotationPlaneWeights = createPlaneWeights();
 
 const parser = new KerbelizedParserator({
   channelCount: 128,
@@ -99,7 +115,7 @@ parser.subscribe((frame) => {
   rotationBus.push({ ...rotation }, latestDynamics);
   updateRotationLabels(rotation, manualOffsets);
   updateIndicators(latestDynamics);
-  updatePlaneIndicators(rotation);
+  planeIndicators.updateSnapshot(rotation);
   updateStatus(latestDynamics);
 });
 
@@ -122,8 +138,9 @@ function pushRotationSnapshot(frameTimestamp: number) {
   };
 
   for (const plane of SIX_PLANE_KEYS) {
-    combined[plane] = autoAngles[plane] + manualOffsets[plane];
-    energy += Math.abs(combined[plane]);
+    const masked = (autoAngles[plane] + manualOffsets[plane]) * planeWeights[plane];
+    combined[plane] = masked;
+    energy += Math.abs(masked);
   }
 
   const normalized = Math.min(1, energy / (Math.PI * SIX_PLANE_KEYS.length));
@@ -188,6 +205,7 @@ lineWidthSlider.addEventListener('input', (event) => {
 
 setGeometry('tesseract');
 stopSynthetic = startSyntheticRotation(autoAngles, (timestamp) => pushRotationSnapshot(timestamp));
+core.setPlaneWeights(planeWeights);
 core.start();
 
 audioToggle.addEventListener('click', async () => {
@@ -401,11 +419,13 @@ function createPlaneIndicators(container: HTMLDivElement) {
     value: HTMLSpanElement;
     direction: HTMLSpanElement;
   }>();
+  let weights = createPlaneWeights();
 
   for (const plane of SIX_PLANE_KEYS) {
     const card = document.createElement('div');
     card.className = 'plane-card';
     card.dataset.direction = 'pos';
+    card.dataset.active = 'on';
 
     const header = document.createElement('div');
     header.className = 'plane-header';
@@ -435,19 +455,86 @@ function createPlaneIndicators(container: HTMLDivElement) {
     indicators.set(plane, { card, fill, value, direction });
   }
 
-  return (snapshot: RotationSnapshot) => {
+  const updateWeights = (next: RotationPlaneWeights) => {
+    weights = { ...next };
     for (const plane of SIX_PLANE_KEYS) {
       const indicator = indicators.get(plane);
       if (!indicator) continue;
-      const angle = snapshot[plane];
-      const normalized = Math.min(1, Math.abs(angle) / Math.PI);
-      const multiple = angle / Math.PI;
-      const directionSymbol = angle >= 0 ? '⟳' : '⟲';
+      indicator.card.dataset.active = planeState(weights[plane]);
+    }
+  };
+
+  const updateSnapshot = (snapshot: RotationSnapshot) => {
+    for (const plane of SIX_PLANE_KEYS) {
+      const indicator = indicators.get(plane);
+      if (!indicator) continue;
+      const mask = weights[plane];
+      const effective = snapshot[plane] * mask;
+      const normalized = Math.min(1, Math.abs(effective) / Math.PI);
+      const multiple = effective / Math.PI;
+      const directionSymbol = effective >= 0 ? '⟳' : '⟲';
       indicator.fill.style.width = `${(normalized * 100).toFixed(1)}%`;
       indicator.fill.style.opacity = (0.45 + normalized * 0.45) * (0.6 + snapshot.confidence * 0.4);
-      indicator.value.textContent = `${angle >= 0 ? '+' : '−'}${Math.abs(multiple).toFixed(2)}π`;
+      indicator.value.textContent = mask === 1
+        ? `${effective >= 0 ? '+' : '−'}${Math.abs(multiple).toFixed(2)}π`
+        : `${effective >= 0 ? '+' : '−'}${Math.abs(multiple).toFixed(2)}π (mask ${mask.toFixed(2)})`;
       indicator.direction.textContent = directionSymbol;
-      indicator.card.dataset.direction = angle >= 0 ? 'pos' : 'neg';
+      indicator.card.dataset.direction = effective >= 0 ? 'pos' : 'neg';
+      indicator.card.dataset.active = planeState(mask);
+    }
+  };
+
+  return { updateSnapshot, updateWeights };
+}
+
+function planeState(weight: number): 'off' | 'partial' | 'on' {
+  if (weight <= 0) return 'off';
+  if (weight >= 1) return 'on';
+  return 'partial';
+}
+
+function createPlaneMaskControls(
+  container: HTMLDivElement,
+  initial: RotationPlaneWeights,
+  onChange: (weights: RotationPlaneWeights) => void
+) {
+  container.replaceChildren();
+  const buttons = new Map<RotationPlane, HTMLButtonElement>();
+  const state = createPlaneWeights(initial);
+
+  const updateButton = (plane: RotationPlane) => {
+    const button = buttons.get(plane);
+    if (!button) return;
+    const weight = state[plane];
+    button.dataset.active = planeState(weight);
+    button.textContent = plane.toUpperCase();
+    button.setAttribute('aria-pressed', weight > 0 ? 'true' : 'false');
+  };
+
+  for (const plane of SIX_PLANE_KEYS) {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'mask-toggle';
+    button.addEventListener('click', (event) => {
+      event.preventDefault();
+      state[plane] = state[plane] > 0 ? 0 : 1;
+      updateButton(plane);
+      onChange({ ...state } as RotationPlaneWeights);
+    });
+    buttons.set(plane, button);
+    container.appendChild(button);
+    updateButton(plane);
+  }
+
+  return {
+    getWeights(): RotationPlaneWeights {
+      return { ...state } as RotationPlaneWeights;
+    },
+    setWeights(weights: RotationPlaneWeights) {
+      for (const plane of SIX_PLANE_KEYS) {
+        state[plane] = weights[plane];
+        updateButton(plane);
+      }
     }
   };
 }
