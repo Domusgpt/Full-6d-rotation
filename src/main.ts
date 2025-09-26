@@ -1,8 +1,12 @@
 import { HypercubeCore } from './core/hypercubeCore';
 import { ZERO_ROTATION, type RotationAngles, type RotationSnapshot } from './core/rotationUniforms';
 import { createHarmonicOrbit, SIX_PLANE_KEYS } from './core/sixPlaneOrbit';
-import { getGeometry, type GeometryId } from './pipeline/geometryCatalog';
+import { type GeometryId } from './pipeline/geometryCatalog';
 import { RotationBus } from './pipeline/rotationBus';
+import { GeometryController } from './pipeline/geometryController';
+import { DatasetExportService } from './pipeline/datasetExport';
+import { LocalPspStream } from './pipeline/pspStream';
+import { FocusDirector } from './pipeline/focusDirector';
 
 const canvas = document.getElementById('gl-canvas') as HTMLCanvasElement;
 const statusEl = document.getElementById('status') as HTMLParagraphElement;
@@ -10,8 +14,23 @@ const geometrySelect = document.getElementById('geometry') as HTMLSelectElement;
 const projectionDepthSlider = document.getElementById('projectionDepth') as HTMLInputElement;
 const lineWidthSlider = document.getElementById('lineWidth') as HTMLInputElement;
 const rotationControlsContainer = document.getElementById('rotation-controls') as HTMLDivElement;
+const uniformUploadsEl = document.getElementById('uniform-uploads') as HTMLSpanElement;
+const uniformSkipsEl = document.getElementById('uniform-skips') as HTMLSpanElement;
+const datasetPendingEl = document.getElementById('dataset-pending') as HTMLSpanElement;
+const datasetTotalEl = document.getElementById('dataset-total') as HTMLSpanElement;
 
-if (!canvas || !statusEl || !geometrySelect || !projectionDepthSlider || !lineWidthSlider || !rotationControlsContainer) {
+if (
+  !canvas ||
+  !statusEl ||
+  !geometrySelect ||
+  !projectionDepthSlider ||
+  !lineWidthSlider ||
+  !rotationControlsContainer ||
+  !uniformUploadsEl ||
+  !uniformSkipsEl ||
+  !datasetPendingEl ||
+  !datasetTotalEl
+) {
   throw new Error('Required DOM nodes are missing');
 }
 
@@ -20,8 +39,13 @@ const core = new HypercubeCore(canvas, {
   lineWidth: Number(lineWidthSlider.value)
 });
 
+const geometryController = new GeometryController(core);
 const rotationBus = new RotationBus();
 rotationBus.subscribe(snapshot => core.updateRotation(snapshot));
+const datasetExport = new DatasetExportService();
+const pspStream = new LocalPspStream();
+const focusDirector = new FocusDirector(geometryController, rotationBus, { fallbackGeometry: 'tesseract' });
+const MAX_PENDING_FRAMES = 48;
 
 const rotationState: RotationSnapshot = {
   ...ZERO_ROTATION,
@@ -48,6 +72,17 @@ function pushRotationSnapshot(timestamp: number) {
 
   rotationBus.push({ ...rotationState });
   updateRotationLabels(rotationState, manualOffsets);
+  updateTelemetry();
+}
+
+function updateTelemetry() {
+  const uniformMetrics = core.getUniformMetrics();
+  uniformUploadsEl.textContent = `${uniformMetrics.uploads}/${uniformMetrics.enqueued}`;
+  uniformSkipsEl.textContent = uniformMetrics.skipped.toString();
+
+  const datasetMetrics = datasetExport.getMetrics();
+  datasetPendingEl.textContent = datasetMetrics.pending.toString();
+  datasetTotalEl.textContent = datasetMetrics.totalEncoded.toString();
 }
 
 updateRotationLabels = createRotationControls(rotationControlsContainer, manualOffsets, () => {
@@ -56,12 +91,23 @@ updateRotationLabels = createRotationControls(rotationControlsContainer, manualO
 
 pushRotationSnapshot(performance.now());
 
+function populateGeometryOptions() {
+  const geometries = geometryController.getAvailableGeometries();
+  geometrySelect.innerHTML = '';
+  for (const descriptor of geometries) {
+    const option = document.createElement('option');
+    option.value = descriptor.id;
+    option.textContent = descriptor.name;
+    geometrySelect.appendChild(option);
+  }
+}
+
 function setGeometry(id: GeometryId) {
-  const geometry = getGeometry(id);
-  core.setGeometry(geometry);
-  const vertexCount = (geometry.positions.length / 4).toFixed(0);
-  const edgeCount = (geometry.indices.length / 2).toFixed(0);
-  statusEl.textContent = `Geometry: ${id} · vertices ${vertexCount} · edges ${edgeCount}`;
+  geometryController.setActiveGeometry(id);
+  const descriptor = geometryController.getDescriptor(id);
+  if (!descriptor) return;
+  const { topology } = descriptor.data;
+  statusEl.textContent = `Geometry: ${descriptor.name} · V ${topology.vertices} · E ${topology.edges} · F ${topology.faces} · C ${topology.cells}`;
 }
 
 geometrySelect.addEventListener('change', (event) => {
@@ -79,9 +125,44 @@ lineWidthSlider.addEventListener('input', (event) => {
   core.setLineWidth(value);
 });
 
+populateGeometryOptions();
+geometrySelect.value = 'tesseract';
 setGeometry('tesseract');
 startSyntheticRotation(autoAngles, timestamp => pushRotationSnapshot(timestamp));
 core.start();
+
+setInterval(() => focusDirector.update(performance.now()), 1000);
+
+rotationBus.subscribe(snapshot => {
+  const datasetMetrics = datasetExport.getMetrics();
+  if (datasetMetrics.pending >= MAX_PENDING_FRAMES) {
+    return;
+  }
+
+  const frame = core.captureFrame();
+  if (frame.width === 0 || frame.height === 0) {
+    return;
+  }
+
+  datasetExport.enqueue({
+    width: frame.width,
+    height: frame.height,
+    pixels: frame.pixels,
+    metadata: {
+      timestamp: snapshot.timestamp,
+      rotationAngles: [snapshot.xy, snapshot.xz, snapshot.yz, snapshot.xw, snapshot.yw, snapshot.zw]
+    }
+  });
+  updateTelemetry();
+});
+
+setInterval(async () => {
+  const frames = await datasetExport.flush();
+  if (frames.length) {
+    frames.forEach(frame => pspStream.publish(frame));
+    updateTelemetry();
+  }
+}, 2000);
 
 function createRotationControls(
   container: HTMLDivElement,
@@ -149,8 +230,11 @@ function startSyntheticRotation(autoState: RotationAngles, onUpdate: (timestamp:
     }
 
     onUpdate(now);
-    requestAnimationFrame(tick);
-  };
+  requestAnimationFrame(tick);
+};
 
   requestAnimationFrame(tick);
 }
+
+updateTelemetry();
+setInterval(updateTelemetry, 1000);
