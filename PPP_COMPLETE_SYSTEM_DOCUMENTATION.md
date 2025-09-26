@@ -447,6 +447,25 @@ To ensure the six degrees of rotational freedom are implemented correctly and ve
 - **Documentation & Onboarding**: Author living docs describing API contracts, deployment topology (browser + Kubernetes workers), and troubleshooting guides, ensuring the rebuild is teachable and maintainable.
 
 
+#### 5.3.8 Implementation Status & Remaining Work
+
+**Delivered in this repository**
+
+- *Stage 0 scaffolding*: Vite + TypeScript toolchain (`package.json`, `vite.config.ts`, `tsconfig.json`) and the `/src/core` layout keep the rendering, ingestion, and geometry modules isolated for verification.
+- *Stage 1 rotation kernel*: `src/core/rotationUniforms.ts`, `src/core/so4.ts`, and accompanying Vitest suites enforce the six-plane uniform contract, sequential rotation parity, and dual-quaternion agreement.
+- *Stage 2 geometry catalogue*: Declarative tesseract and 24-cell data sets (`src/geometry/tesseract.ts`, `src/geometry/twentyFourCell.ts`) are uploaded through `GeometryCatalog`, giving HypercubeCore live SO(4) geometry to animate.
+- *Stage 3 ingestion loop*: `src/ingestion/kerbelizedParserator.ts`, `src/pipeline/imuStream.ts`, and the new `src/ingestion/imuMapper.test.ts` confirm that the parser pushes all six rotational planes from IMU packets into the UBO stream with deterministic smoothing.
+- *Projection bridge + style feedback*: `src/core/projectionBridge.ts`, `src/core/hypercubeCore.ts`, and `src/core/rotationDynamics.ts` combine rotation uniforms with projection uniforms and energy metrics so shaders receive synchronized rotation, palette, and chaos data every frame.
+
+**Outstanding for the MVP**
+
+- Extend the geometry catalogue with a 600-cell subset and introduce reusable GPU bindings/instancing so massive polychora do not require CPU rebinding per frame.
+- Add the UniformSyncQueue/performance counters described in Stage 3 to instrument UBO upload cadence and catch multi-context contention.
+- Finish the dataset export surface (PNG/WebP/WebM) and PSP multi-context scheduler so ViT/CNN consumers can subscribe without blocking the live viewport.
+- Stand up the HAOS bridge layer (`FocusDirector`, `PspStream`, JSON-RPC contracts) and connect Bayesian focus feedback to parser gain updates.
+- Automate performance + regression tests inside CI to lock the ≥60 fps / <4 ms budget before expanding to Kubernetes or WebGPU back ends.
+
+
 ---
 
 ## Part VI: Technical Specifications & Performance Metrics
