@@ -43,6 +43,23 @@
         letter-spacing: 0.08em;
         color: #9edcff;
       }
+      .telemetry {
+        border-top: 1px solid rgba(86, 180, 252, 0.2);
+        padding-top: 12px;
+        margin-top: 12px;
+        gap: 8px;
+      }
+      .telemetry-row {
+        display: flex;
+        justify-content: space-between;
+        font-size: 0.75rem;
+        color: rgba(211, 246, 255, 0.85);
+      }
+      .telemetry-row span:first-child {
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        color: rgba(144, 202, 249, 0.85);
+      }
       .control-group input[type="range"] {
         width: 100%;
       }
@@ -79,6 +96,24 @@
         <section class="control-group">
           <label for="lineWidth">Line Width</label>
           <input id="lineWidth" type="range" min="1" max="6" step="0.5" value="2" />
+        </section>
+        <section id="telemetry" class="control-group telemetry">
+          <div class="telemetry-row">
+            <span>Uniform uploads</span>
+            <span id="uniform-uploads">0</span>
+          </div>
+          <div class="telemetry-row">
+            <span>Uniform skips</span>
+            <span id="uniform-skips">0</span>
+          </div>
+          <div class="telemetry-row">
+            <span>Pending frames</span>
+            <span id="dataset-pending">0</span>
+          </div>
+          <div class="telemetry-row">
+            <span>Encoded frames</span>
+            <span id="dataset-total">0</span>
+          </div>
         </section>
       </aside>
       <canvas id="gl-canvas"></canvas>
