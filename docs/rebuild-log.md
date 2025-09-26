@@ -19,3 +19,19 @@ This log captures the follow-on work after the “Implement staged rebuild bluep
 ### Next checkpoints
 - Thread the capture path through the dataset exporter worker once the Web Worker harness lands (Stage 4).
 - Extend telemetry with rolling latency stats (sensor → uniform upload → capture) to satisfy Stage 6 performance budgets.
+
+## Session – Dataset Worker Pipeline
+
+### What changed
+- **Frame encoding refactor** (`frameEncoding.ts`, `datasetTypes.ts`) – centralized dataset frame types and encoding so both the main thread and workers share the exact checksum/metadata contract.
+- **Worker-backed export service** (`datasetExport.ts`, `datasetExportWorker.ts`) – spin up a dedicated Web Worker when available, queue encoding jobs with deterministic fallbacks, and track metrics even when the worker is unavailable.
+- **Worker coverage** (`datasetExport.test.ts`) – added tests for both the JSON fallback and worker delegation paths to guarantee parity across environments.
+
+### Why these pieces matter
+- The **shared encoding module** keeps stage‑4 PSP exports consistent regardless of execution context, making audit logs and ML ingest dependable.
+- The **worker pipeline** prevents heavy encodes from blocking the render loop while still failing safely to inline encoding when workers aren’t supported.
+- The **dual-path tests** ensure the queue metrics and metadata stay accurate whether we’re running inside a headless test runner or a production browser.
+
+### Next checkpoints
+- Stream worker-encoded blobs through the PSP bridge with rolling latency stats so Stage 4 export budgets stay observable.
+- Surface worker health indicators in the control panel to alert operators when the pipeline falls back to inline encoding.
