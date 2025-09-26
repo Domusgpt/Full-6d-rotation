@@ -408,7 +408,8 @@ To ensure the six degrees of rotational freedom are implemented correctly and ve
 - **Validation Harness**: Create a headless Jest + gl-matrix test suite that can render offscreen via headless-gl, confirming shader compilation and rotation outputs before browser execution.
 
 #### 5.3.2 Stage 1 – Rotation Kernel & Uniform Contract
-- **Explicit SO(4) Struct**: Author `RotationUniforms.ts` exporting `RotationAngles` and `RotationDualQuaternion` interfaces, backed by a 6×float32 UBO slice plus optional dual-quaternion packing.
+- **Explicit SO(4) Struct**: Author `RotationUniforms.ts` exporting `RotationAngles` and `RotationDualQuaternion` interfaces, backing a rotation UBO that carries the six angles, precomputed trig pairs, the 4×4 matrix, and dual-quaternion slices for shader and analysis parity.
+- **Precomputed Plane Trig**: Extend the rotation UBO with sine and cosine pairs for each plane so GPU shaders apply six rotations without per-vertex trigonometry and remain numerically stable at high angular velocities.
 - **Reference Implementation**: Implement `applySequentialRotations(vec4 v, RotationAngles angles)` using the documented plane order, alongside property-based tests comparing against `SO4` matrices from a Python oracle.
 - **Dual Quaternion Path**: Provide `composeDualQuaternion(angles)` with validation that sequential and dual-quaternion outputs match within ε < 1e-4 radians for randomized inputs.
 - **HypercubeCore Wiring**: Ensure the render loop reads only from the typed uniform buffer; mutation occurs exclusively via `RotationBus.pushSnapshot()` to avoid hidden state.

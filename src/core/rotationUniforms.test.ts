@@ -14,7 +14,7 @@ const ANGLES = {
 
 describe('packRotationUniformData', () => {
   it('writes angles, matrix, and dual quaternions into the target buffer', () => {
-    const target = new Float32Array(32);
+    const target = new Float32Array(48);
     const matrixOut = mat4.create();
     const leftQuat = new Float32Array(4);
     const rightQuat = new Float32Array(4);
@@ -28,20 +28,34 @@ describe('packRotationUniformData', () => {
     expect(target[5]).toBeCloseTo(ANGLES.yw, 1e-6);
     expect(target[6]).toBeCloseTo(ANGLES.zw, 1e-6);
 
+    expect(target[8]).toBeCloseTo(Math.sin(ANGLES.xy), 1e-6);
+    expect(target[9]).toBeCloseTo(Math.sin(ANGLES.xz), 1e-6);
+    expect(target[10]).toBeCloseTo(Math.sin(ANGLES.yz), 1e-6);
+    expect(target[12]).toBeCloseTo(Math.cos(ANGLES.xy), 1e-6);
+    expect(target[13]).toBeCloseTo(Math.cos(ANGLES.xz), 1e-6);
+    expect(target[14]).toBeCloseTo(Math.cos(ANGLES.yz), 1e-6);
+
+    expect(target[16]).toBeCloseTo(Math.sin(ANGLES.xw), 1e-6);
+    expect(target[17]).toBeCloseTo(Math.sin(ANGLES.yw), 1e-6);
+    expect(target[18]).toBeCloseTo(Math.sin(ANGLES.zw), 1e-6);
+    expect(target[20]).toBeCloseTo(Math.cos(ANGLES.xw), 1e-6);
+    expect(target[21]).toBeCloseTo(Math.cos(ANGLES.yw), 1e-6);
+    expect(target[22]).toBeCloseTo(Math.cos(ANGLES.zw), 1e-6);
+
     const expectedMatrix = rotationMatrixFromAngles(ANGLES);
     for (let i = 0; i < 16; i += 1) {
-      expect(target[8 + i]).toBeCloseTo(expectedMatrix[i], 1e-5);
+      expect(target[24 + i]).toBeCloseTo(expectedMatrix[i], 1e-5);
     }
 
     const expectedDual = composeDualQuaternion(ANGLES);
     for (let i = 0; i < 4; i += 1) {
-      expect(target[24 + i]).toBeCloseTo(expectedDual.left[i], 1e-5);
-      expect(target[28 + i]).toBeCloseTo(expectedDual.right[i], 1e-5);
+      expect(target[40 + i]).toBeCloseTo(expectedDual.left[i], 1e-5);
+      expect(target[44 + i]).toBeCloseTo(expectedDual.right[i], 1e-5);
     }
   });
 
   it('handles zero rotation without producing NaNs', () => {
-    const target = new Float32Array(32);
+    const target = new Float32Array(48);
     const matrixOut = mat4.create();
     const leftQuat = new Float32Array(4);
     const rightQuat = new Float32Array(4);

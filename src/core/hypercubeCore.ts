@@ -322,8 +322,12 @@ precision highp float;
 layout(location = 0) in vec4 a_position4d;
 
 layout(std140) uniform RotationUniforms {
-  vec4 spatial;    // xy, xz, yz, padding
-  vec4 hyperspatial; // xw, yw, zw, padding
+  vec4 spatialAngles;    // xy, xz, yz, padding
+  vec4 hyperspatialAngles; // xw, yw, zw, padding
+  vec4 spatialSin;
+  vec4 spatialCos;
+  vec4 hyperspatialSin;
+  vec4 hyperspatialCos;
   mat4 rotationMatrix;
   vec4 quatLeft;
   vec4 quatRight;
@@ -358,39 +362,37 @@ vec3 spectralPalette(float parameter) {
   );
 }
 
-vec2 rotatePlane(vec2 plane, float angle) {
-  float c = cos(angle);
-  float s = sin(angle);
+vec2 rotatePlane(vec2 plane, float s, float c) {
   return vec2(
     plane.x * c - plane.y * s,
     plane.x * s + plane.y * c
   );
 }
 
-vec4 applySixPlaneRotation(vec4 position, vec4 spatialAngles, vec4 hyperAngles) {
+vec4 applySixPlaneRotation(vec4 position) {
   vec4 rotated = position;
 
-  vec2 pairXY = rotatePlane(rotated.xy, spatialAngles.x);
+  vec2 pairXY = rotatePlane(rotated.xy, spatialSin.x, spatialCos.x);
   rotated.x = pairXY.x;
   rotated.y = pairXY.y;
 
-  vec2 pairXZ = rotatePlane(vec2(rotated.x, rotated.z), spatialAngles.y);
+  vec2 pairXZ = rotatePlane(vec2(rotated.x, rotated.z), spatialSin.y, spatialCos.y);
   rotated.x = pairXZ.x;
   rotated.z = pairXZ.y;
 
-  vec2 pairYZ = rotatePlane(vec2(rotated.y, rotated.z), spatialAngles.z);
+  vec2 pairYZ = rotatePlane(vec2(rotated.y, rotated.z), spatialSin.z, spatialCos.z);
   rotated.y = pairYZ.x;
   rotated.z = pairYZ.y;
 
-  vec2 pairXW = rotatePlane(vec2(rotated.x, rotated.w), hyperAngles.x);
+  vec2 pairXW = rotatePlane(vec2(rotated.x, rotated.w), hyperspatialSin.x, hyperspatialCos.x);
   rotated.x = pairXW.x;
   rotated.w = pairXW.y;
 
-  vec2 pairYW = rotatePlane(vec2(rotated.y, rotated.w), hyperAngles.y);
+  vec2 pairYW = rotatePlane(vec2(rotated.y, rotated.w), hyperspatialSin.y, hyperspatialCos.y);
   rotated.y = pairYW.x;
   rotated.w = pairYW.y;
 
-  vec2 pairZW = rotatePlane(vec2(rotated.z, rotated.w), hyperAngles.z);
+  vec2 pairZW = rotatePlane(vec2(rotated.z, rotated.w), hyperspatialSin.z, hyperspatialCos.z);
   rotated.z = pairZW.x;
   rotated.w = pairZW.y;
 
@@ -413,7 +415,7 @@ vec3 projectTo3D(vec4 rotated, out float depthValue) {
 }
 
 void main() {
-  vec4 rotated = applySixPlaneRotation(a_position4d, spatial, hyperspatial);
+  vec4 rotated = applySixPlaneRotation(a_position4d);
   vec4 matrixProjected = rotationMatrix * a_position4d;
   float depth;
   vec3 projected = projectTo3D(rotated, depth);
@@ -434,7 +436,8 @@ void main() {
   float chiralSpread = length(leftVec - rightVec);
   float chiralTone = smoothstep(0.0, 1.4, clamp(chiralSpread, 0.0, 2.0));
 
-  float hueShift = chaos * 0.12 + energy * 0.08 + (isoPhase - 0.5) * 0.18;
+  float rotationMomentum = length(spatialAngles.xyz) + length(hyperspatialAngles.xyz);
+  float hueShift = chaos * 0.12 + energy * 0.08 + (isoPhase - 0.5) * 0.18 + rotationMomentum * 0.015;
   float isoSaturation = clamp(saturation + (isoPhase - 0.5) * 0.22, 0.0, 1.0);
   float isoBrightness = clamp(brightness + (1.0 - chiralTone) * 0.12, 0.0, 1.0);
   float isoThickness = thickness * (1.0 + chiralTone * 0.45);

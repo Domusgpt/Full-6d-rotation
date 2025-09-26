@@ -20,11 +20,11 @@ export interface RotationDualQuaternion {
   right: Float32Array;
 }
 
-const FLOATS_PER_BLOCK = 32; // vec4 + vec4 + mat4 + vec4 + vec4
+const FLOATS_PER_BLOCK = 48; // 6 vec4 blocks + mat4 + 2 vec4 quaternions
 const BLOCK_SIZE_BYTES = FLOATS_PER_BLOCK * 4;
-const MATRIX_OFFSET = 8;
-const LEFT_QUAT_OFFSET = 24;
-const RIGHT_QUAT_OFFSET = 28;
+const MATRIX_OFFSET = 24;
+const LEFT_QUAT_OFFSET = 40;
+const RIGHT_QUAT_OFFSET = 44;
 
 export function packRotationUniformData(
   angles: RotationAngles,
@@ -41,6 +41,37 @@ export function packRotationUniformData(
   target[5] = angles.yw;
   target[6] = angles.zw;
   target[7] = 0.0; // padding
+
+  const sinXY = Math.sin(angles.xy);
+  const sinXZ = Math.sin(angles.xz);
+  const sinYZ = Math.sin(angles.yz);
+  const sinXW = Math.sin(angles.xw);
+  const sinYW = Math.sin(angles.yw);
+  const sinZW = Math.sin(angles.zw);
+
+  const cosXY = Math.cos(angles.xy);
+  const cosXZ = Math.cos(angles.xz);
+  const cosYZ = Math.cos(angles.yz);
+  const cosXW = Math.cos(angles.xw);
+  const cosYW = Math.cos(angles.yw);
+  const cosZW = Math.cos(angles.zw);
+
+  target[8] = sinXY;
+  target[9] = sinXZ;
+  target[10] = sinYZ;
+  target[11] = 0.0;
+  target[12] = cosXY;
+  target[13] = cosXZ;
+  target[14] = cosYZ;
+  target[15] = 0.0;
+  target[16] = sinXW;
+  target[17] = sinYW;
+  target[18] = sinZW;
+  target[19] = 0.0;
+  target[20] = cosXW;
+  target[21] = cosYW;
+  target[22] = cosZW;
+  target[23] = 0.0;
 
   const matrix = rotationMatrixFromAngles(angles, matrixOut);
   target.set(matrix, MATRIX_OFFSET);
