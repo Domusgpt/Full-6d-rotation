@@ -1,4 +1,4 @@
-import type { GeometryData } from './types';
+import { GL_LINES, GL_UNSIGNED_SHORT, type GeometryData } from './types';
 
 function createTesseractGeometry(): GeometryData {
   const vertices: number[][] = [];
@@ -35,8 +35,9 @@ function createTesseractGeometry(): GeometryData {
   return {
     positions: new Float32Array(vertices.flat()),
     indices: new Uint16Array(indices),
-    drawMode: WebGL2RenderingContext.LINES,
-    vertexStride: 4
+    drawMode: GL_LINES,
+    vertexStride: 4,
+    indexType: GL_UNSIGNED_SHORT
   };
 }
 

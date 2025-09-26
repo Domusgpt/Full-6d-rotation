@@ -28,6 +28,8 @@ export class HypercubeCore {
   private program: WebGLProgram;
   private vao: WebGLVertexArrayObject | null = null;
   private indexCount = 0;
+  private drawMode: number;
+  private indexType: number;
   private projectionDepth = 3;
   private projectionMode: ProjectionMode = 'perspective';
   private projectionParameters: ProjectionParameters = { ...DEFAULT_PROJECTION_PARAMETERS };
@@ -60,6 +62,8 @@ export class HypercubeCore {
     this.gl = gl;
     this.rotationBuffer = new RotationUniformBuffer(gl);
     this.styleBuffer = new StyleUniformBuffer(gl);
+    this.drawMode = gl.LINES;
+    this.indexType = gl.UNSIGNED_SHORT;
     this.projectionDepth = options.projectionDepth ?? this.projectionDepth;
     this.projectionMode = options.projectionMode ?? this.projectionMode;
     this.projectionParameters = {
@@ -146,6 +150,12 @@ export class HypercubeCore {
     gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, indexBuffer);
     gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, geometry.indices, gl.STATIC_DRAW);
 
+    this.drawMode = geometry.drawMode ?? gl.LINES;
+    if (geometry.indexType) {
+      this.indexType = geometry.indexType;
+    } else {
+      this.indexType = geometry.indices instanceof Uint32Array ? gl.UNSIGNED_INT : gl.UNSIGNED_SHORT;
+    }
     this.indexCount = geometry.indices.length;
     gl.bindVertexArray(null);
   }
@@ -204,7 +214,7 @@ export class HypercubeCore {
     }
     gl.lineWidth(Math.max(1, Math.min(modulatedLineWidth, 8)));
 
-    gl.drawElements(gl.LINES, this.indexCount, gl.UNSIGNED_SHORT, 0);
+    gl.drawElements(this.drawMode, this.indexCount, this.indexType, 0);
     gl.bindVertexArray(null);
   }
 
