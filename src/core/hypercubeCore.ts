@@ -14,11 +14,20 @@ import {
 } from './projectionBridge';
 import type { GeometryData } from '../geometry/types';
 
+export type RotationSolver = 'sequential' | 'matrix' | 'dualQuaternion';
+
+const SOLVER_INDEX: Record<RotationSolver, number> = {
+  sequential: 0,
+  matrix: 1,
+  dualQuaternion: 2
+};
+
 export interface HypercubeCoreOptions {
   projectionDepth?: number;
   lineWidth?: number;
   projectionMode?: ProjectionMode;
   projectionParameters?: Partial<ProjectionParameters>;
+  rotationSolver?: RotationSolver;
 }
 
 export class HypercubeCore {
@@ -45,6 +54,9 @@ export class HypercubeCore {
   private rotationDirty = true;
   private readonly stagedDynamics: RotationDynamics = { ...ZERO_DYNAMICS };
   private dynamicsDirty = true;
+  private rotationSolver: RotationSolver = 'sequential';
+  private rotationSolverIndex = SOLVER_INDEX.sequential;
+  private rotationSolverDirty = true;
 
   private uniforms!: {
     projectionDepth: WebGLUniformLocation;
@@ -52,6 +64,7 @@ export class HypercubeCore {
     time: WebGLUniformLocation;
     projectionMode: WebGLUniformLocation;
     projectionParams: WebGLUniformLocation;
+    rotationSolver: WebGLUniformLocation;
   };
 
   constructor(private readonly canvas: HTMLCanvasElement, options: HypercubeCoreOptions = {}) {
@@ -73,12 +86,17 @@ export class HypercubeCore {
     };
     this.projectionUniformMode = projectionModeToIndex(this.projectionMode);
     this.lineWidth = options.lineWidth ?? this.lineWidth;
+    if (options.rotationSolver) {
+      this.rotationSolver = options.rotationSolver;
+      this.rotationSolverIndex = SOLVER_INDEX[this.rotationSolver];
+    }
     this.program = this.createProgram();
     this.rotationBuffer.bind(this.program);
     this.styleBuffer.bind(this.program);
     this.rotationBuffer.update(ZERO_ROTATION);
     this.styleBuffer.update(ZERO_DYNAMICS);
     this.uniforms = this.getUniformLocations();
+    this.rotationSolverDirty = true;
     this.configureContext();
     this.projectionParamsDirty = true;
     this.projectionUploadDirty = true;
@@ -171,6 +189,13 @@ export class HypercubeCore {
     this.dynamicsDirty = true;
   }
 
+  setRotationSolver(solver: RotationSolver) {
+    if (this.rotationSolver === solver) return;
+    this.rotationSolver = solver;
+    this.rotationSolverIndex = SOLVER_INDEX[solver];
+    this.rotationSolverDirty = true;
+  }
+
   start() {
     if (this.animationHandle !== null) return;
     const loop = (timestamp: number) => {
@@ -202,6 +227,11 @@ export class HypercubeCore {
 
     this.flushUniformQueues();
     this.syncProjectionUniforms();
+
+    if (this.rotationSolverDirty) {
+      gl.uniform1i(this.uniforms.rotationSolver, this.rotationSolverIndex);
+      this.rotationSolverDirty = false;
+    }
 
     gl.uniform1f(this.uniforms.projectionDepth, this.projectionDepth);
     const modulatedLineWidth = this.lineWidth * this.dynamicLineScale;
@@ -300,10 +330,18 @@ export class HypercubeCore {
     const time = this.gl.getUniformLocation(this.program, 'u_time');
     const projectionMode = this.gl.getUniformLocation(this.program, 'u_projectionMode');
     const projectionParams = this.gl.getUniformLocation(this.program, 'u_projectionParams');
-    if (!projectionDepth || !lineWidth || !time || !projectionMode || !projectionParams) {
+    const rotationSolver = this.gl.getUniformLocation(this.program, 'u_rotationSolver');
+    if (
+      !projectionDepth ||
+      !lineWidth ||
+      !time ||
+      !projectionMode ||
+      !projectionParams ||
+      !rotationSolver
+    ) {
       throw new Error('Failed to resolve uniform locations');
     }
-    return { projectionDepth, lineWidth, time, projectionMode, projectionParams };
+    return { projectionDepth, lineWidth, time, projectionMode, projectionParams, rotationSolver };
   }
 }
 
@@ -355,6 +393,7 @@ uniform float u_lineWidth;
 uniform float u_time;
 uniform int u_projectionMode;
 uniform vec4 u_projectionParams;
+uniform int u_rotationSolver;
 
 out vec3 v_color;
 out float v_depth;
@@ -379,6 +418,28 @@ vec2 rotatePlane(vec2 plane, float s, float c) {
     plane.x * c - plane.y * s,
     plane.x * s + plane.y * c
   );
+}
+
+vec4 quatMultiply(vec4 a, vec4 b) {
+  return vec4(
+    a.w * b.x + a.x * b.w + a.y * b.z - a.z * b.y,
+    a.w * b.y - a.x * b.z + a.y * b.w + a.z * b.x,
+    a.w * b.z + a.x * b.y - a.y * b.x + a.z * b.w,
+    a.w * b.w - dot(a.xyz, b.xyz)
+  );
+}
+
+vec4 quatConjugate(vec4 q) {
+  return vec4(-q.xyz, q.w);
+}
+
+vec4 quatNormalize(vec4 q) {
+  float lengthSq = dot(q, q);
+  if (lengthSq <= 0.0) {
+    return vec4(0.0, 0.0, 0.0, 1.0);
+  }
+  float invLength = inversesqrt(lengthSq);
+  return q * invLength;
 }
 
 vec4 applySixPlaneRotation(vec4 position) {
@@ -411,6 +472,23 @@ vec4 applySixPlaneRotation(vec4 position) {
   return rotated;
 }
 
+vec4 applyDualQuaternionRotation(vec4 position) {
+  vec4 left = quatNormalize(quatLeft);
+  vec4 right = quatNormalize(quatRight);
+  vec4 temp = quatMultiply(left, position);
+  return quatMultiply(temp, quatConjugate(right));
+}
+
+vec4 applyConfiguredRotation(vec4 position) {
+  if (u_rotationSolver == 1) {
+    return rotationMatrix * position;
+  }
+  if (u_rotationSolver == 2) {
+    return applyDualQuaternionRotation(position);
+  }
+  return applySixPlaneRotation(position);
+}
+
 vec3 projectTo3D(vec4 rotated, out float depthValue) {
   if (u_projectionMode == 0) {
     float depth = max(u_projectionParams.x - rotated.w, u_projectionParams.y);
@@ -427,7 +505,7 @@ vec3 projectTo3D(vec4 rotated, out float depthValue) {
 }
 
 void main() {
-  vec4 rotated = applySixPlaneRotation(a_position4d);
+  vec4 rotated = applyConfiguredRotation(a_position4d);
   vec4 matrixProjected = rotationMatrix * a_position4d;
   float depth;
   vec3 projected = projectTo3D(rotated, depth);

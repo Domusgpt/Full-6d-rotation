@@ -1,4 +1,4 @@
-import { HypercubeCore } from './core/hypercubeCore';
+import { HypercubeCore, type RotationSolver } from './core/hypercubeCore';
 import { ZERO_ROTATION, type RotationAngles, type RotationSnapshot } from './core/rotationUniforms';
 import { createHarmonicOrbit } from './core/sixPlaneOrbit';
 import { SIX_PLANE_KEYS } from './core/rotationPlanes';
@@ -17,6 +17,7 @@ const canvas = document.getElementById('gl-canvas') as HTMLCanvasElement;
 const statusEl = document.getElementById('status') as HTMLParagraphElement;
 const geometrySelect = document.getElementById('geometry') as HTMLSelectElement;
 const projectionModeSelect = document.getElementById('projectionMode') as HTMLSelectElement;
+const rotationSolverSelect = document.getElementById('rotationSolver') as HTMLSelectElement;
 const projectionDepthSlider = document.getElementById('projectionDepth') as HTMLInputElement;
 const projectionDepthLabel = document.getElementById('projectionDepthLabel') as HTMLLabelElement;
 const lineWidthSlider = document.getElementById('lineWidth') as HTMLInputElement;
@@ -33,6 +34,7 @@ if (
   !geometrySelect ||
   !projectionModeSelect ||
   !projectionDepthSlider ||
+  !rotationSolverSelect ||
   !projectionDepthLabel ||
   !lineWidthSlider ||
   !rotationControlsContainer ||
@@ -52,10 +54,13 @@ const projectionControlValues: Record<ProjectionMode, number> = {
   orthographic: 0.8
 };
 
+const initialSolver = (rotationSolverSelect.value as RotationSolver) ?? 'sequential';
+
 const core = new HypercubeCore(canvas, {
   projectionDepth: projectionControlValues.perspective,
   lineWidth: Number(lineWidthSlider.value),
-  projectionMode
+  projectionMode,
+  rotationSolver: initialSolver
 });
 initializeProjectionControls();
 core.setProjectionControl(projectionControlValues[projectionMode]);
@@ -164,6 +169,11 @@ projectionModeSelect.addEventListener('change', (event) => {
     core.setProjectionDepth(controlValue);
   }
   core.setProjectionControl(controlValue);
+});
+
+rotationSolverSelect.addEventListener('change', (event) => {
+  const solver = (event.target as HTMLSelectElement).value as RotationSolver;
+  core.setRotationSolver(solver);
 });
 
 lineWidthSlider.addEventListener('input', (event) => {
