@@ -122,6 +122,15 @@ export function mergePlaneWeights(
   return changed;
 }
 
+export function isUnitPlaneWeights(weights: RotationPlaneWeights): boolean {
+  for (const plane of SIX_PLANE_KEYS) {
+    if (weights[plane] !== UNIT_PLANE_WEIGHTS[plane]) {
+      return false;
+    }
+  }
+  return true;
+}
+
 export function applyPlaneWeights<T extends RotationAngles>(
   target: T,
   source: RotationAngles,

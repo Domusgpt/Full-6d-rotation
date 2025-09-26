@@ -2,14 +2,15 @@ import { describe, expect, it } from 'vitest';
 import type { RotationAngles } from './rotationUniforms';
 import {
   SIX_PLANE_KEYS,
+  UNIT_PLANE_WEIGHTS,
   applyPlaneWeights,
   applyPlaneWeightsToSnapshot,
   clonePlaneWeights,
   cloneRotationAngles,
   createPlaneWeights,
+  isUnitPlaneWeights,
   mergePlaneWeights,
   readRotationChannels,
-  UNIT_PLANE_WEIGHTS,
   writeRotationChannels
 } from './rotationPlanes';
 
@@ -84,5 +85,14 @@ describe('rotationPlanes helpers', () => {
     expect(snapshot.timestamp).toBe(34);
     expect(snapshot.confidence).toBeCloseTo(0.6);
     expect(snapshot.xy).toBeCloseTo(SAMPLE.xy * 0.5);
+  });
+
+  it('detects when plane weights remain at the default unit mask', () => {
+    const weights = createPlaneWeights();
+    expect(isUnitPlaneWeights(weights)).toBe(true);
+    weights.xy = 0.75;
+    expect(isUnitPlaneWeights(weights)).toBe(false);
+    weights.xy = 1;
+    expect(isUnitPlaneWeights(weights)).toBe(true);
   });
 });

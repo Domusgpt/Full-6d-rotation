@@ -1,7 +1,8 @@
 import {
   RotationUniformBuffer,
   ZERO_SNAPSHOT,
-  type RotationSnapshot
+  type RotationSnapshot,
+  type RotationUniformOverrides
 } from './rotationUniforms';
 import { StyleUniformBuffer, type RotationDynamics, ZERO_DYNAMICS } from './styleUniforms';
 import {
@@ -20,6 +21,7 @@ import type { GeometryData } from '../geometry/types';
 import {
   applyPlaneWeightsToSnapshot,
   createPlaneWeights,
+  isUnitPlaneWeights,
   mergePlaneWeights,
   type RotationPlaneWeights
 } from './rotationPlanes';
@@ -69,6 +71,7 @@ export class HypercubeCore {
   private animationHandle: number | null = null;
   private readonly stagedRotation: RotationSnapshot = { ...ZERO_SNAPSHOT };
   private readonly maskedRotation: RotationSnapshot = { ...ZERO_SNAPSHOT };
+  private rotationOverrides: RotationUniformOverrides | null = null;
   private rotationDirty = true;
   private readonly stagedDynamics: RotationDynamics = { ...ZERO_DYNAMICS };
   private dynamicsDirty = true;
@@ -78,6 +81,7 @@ export class HypercubeCore {
   private readonly rotationValidation: boolean;
   private lastRotationValidation: RotationValidationResult | null = null;
   private readonly planeWeights: RotationPlaneWeights = createPlaneWeights();
+  private hasUnitPlaneWeights = true;
   private planeWeightsDirty = false;
 
   private uniforms!: {
@@ -118,6 +122,7 @@ export class HypercubeCore {
     this.styleBuffer.bind(this.program);
     this.rotationBuffer.update(ZERO_SNAPSHOT);
     this.styleBuffer.update(ZERO_DYNAMICS);
+    this.hasUnitPlaneWeights = isUnitPlaneWeights(this.planeWeights);
     this.uniforms = this.getUniformLocations();
     this.rotationSolverDirty = true;
     this.configureContext();
@@ -201,7 +206,7 @@ export class HypercubeCore {
     gl.bindVertexArray(null);
   }
 
-  updateRotation(snapshot: RotationSnapshot) {
+  updateRotation(snapshot: RotationSnapshot, overrides?: RotationUniformOverrides | null) {
     if (this.rotationValidation) {
       const validation = validateRotationSolvers(snapshot, 5e-3);
       this.lastRotationValidation = validation;
@@ -210,6 +215,7 @@ export class HypercubeCore {
       }
     }
     copyRotationSnapshot(this.stagedRotation, snapshot);
+    this.rotationOverrides = cloneRotationOverrides(overrides);
     this.rotationDirty = true;
   }
 
@@ -230,6 +236,7 @@ export class HypercubeCore {
     if (mergePlaneWeights(this.planeWeights, weights)) {
       this.planeWeightsDirty = true;
       this.rotationDirty = true;
+      this.hasUnitPlaneWeights = isUnitPlaneWeights(this.planeWeights);
     }
   }
 
@@ -299,7 +306,8 @@ export class HypercubeCore {
   private flushUniformQueues() {
     if (this.rotationDirty || this.planeWeightsDirty) {
       applyPlaneWeightsToSnapshot(this.maskedRotation, this.stagedRotation, this.planeWeights);
-      this.rotationBuffer.update(this.maskedRotation);
+      const overrides = this.hasUnitPlaneWeights ? this.rotationOverrides : null;
+      this.rotationBuffer.update(this.maskedRotation, overrides);
       this.rotationDirty = false;
       this.planeWeightsDirty = false;
     }
@@ -404,6 +412,67 @@ function copyRotationSnapshot(target: RotationSnapshot, source: RotationSnapshot
   target.zw = source.zw;
   target.timestamp = source.timestamp;
   target.confidence = source.confidence;
+}
+
+function cloneRotationOverrides(
+  overrides: RotationUniformOverrides | null | undefined
+): RotationUniformOverrides | null {
+  if (!overrides) {
+    return null;
+  }
+  const clone: RotationUniformOverrides = {};
+  if (overrides.spatialSin) {
+    clone.spatialSin = copyTriple(overrides.spatialSin);
+  }
+  if (overrides.spatialCos) {
+    clone.spatialCos = copyTriple(overrides.spatialCos);
+  }
+  if (overrides.hyperspatialSin) {
+    clone.hyperspatialSin = copyTriple(overrides.hyperspatialSin);
+  }
+  if (overrides.hyperspatialCos) {
+    clone.hyperspatialCos = copyTriple(overrides.hyperspatialCos);
+  }
+  if (overrides.spatialMagnitudes) {
+    clone.spatialMagnitudes = copyTriple(overrides.spatialMagnitudes);
+  }
+  if (overrides.hyperspatialMagnitudes) {
+    clone.hyperspatialMagnitudes = copyTriple(overrides.hyperspatialMagnitudes);
+  }
+  if (overrides.matrix) {
+    clone.matrix = copyMatrix(overrides.matrix);
+  }
+  if (overrides.dual) {
+    clone.dual = {
+      left: copyQuaternion(overrides.dual.left),
+      right: copyQuaternion(overrides.dual.right)
+    };
+  }
+  return clone;
+}
+
+function copyTriple(values: ArrayLike<number>): Float32Array {
+  const result = new Float32Array(3);
+  result[0] = values[0] ?? 0;
+  result[1] = values[1] ?? 0;
+  result[2] = values[2] ?? 0;
+  return result;
+}
+
+function copyMatrix(values: ArrayLike<number>): Float32Array {
+  const result = new Float32Array(16);
+  for (let i = 0; i < 16; i += 1) {
+    result[i] = values[i] ?? 0;
+  }
+  return result;
+}
+
+function copyQuaternion(values: ArrayLike<number>): Float32Array {
+  const result = new Float32Array(4);
+  for (let i = 0; i < 4; i += 1) {
+    result[i] = values[i] ?? 0;
+  }
+  return result;
 }
 
 function copyDynamics(target: RotationDynamics, source: RotationDynamics) {

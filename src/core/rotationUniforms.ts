@@ -20,6 +20,20 @@ export interface RotationDualQuaternion {
   right: Float32Array;
 }
 
+export interface RotationUniformOverrides {
+  spatialSin?: ArrayLike<number>;
+  spatialCos?: ArrayLike<number>;
+  hyperspatialSin?: ArrayLike<number>;
+  hyperspatialCos?: ArrayLike<number>;
+  spatialMagnitudes?: ArrayLike<number>;
+  hyperspatialMagnitudes?: ArrayLike<number>;
+  matrix?: ArrayLike<number>;
+  dual?: {
+    left: ArrayLike<number>;
+    right: ArrayLike<number>;
+  };
+}
+
 const FLOATS_PER_BLOCK = 60; // 9 vec4 blocks + mat4 + 2 vec4 quaternions
 const BLOCK_SIZE_BYTES = FLOATS_PER_BLOCK * 4;
 const META_OFFSET = 32;
@@ -33,7 +47,8 @@ export function packRotationUniformData(
   target: Float32Array,
   matrixOut: mat4,
   leftQuatOut: Float32Array,
-  rightQuatOut: Float32Array
+  rightQuatOut: Float32Array,
+  overrides: RotationUniformOverrides | null = null
 ) {
   const angles = snapshot;
   target[0] = angles.xy;
@@ -45,19 +60,24 @@ export function packRotationUniformData(
   target[6] = angles.zw;
   target[7] = 0.0; // padding
 
-  const sinXY = Math.sin(angles.xy);
-  const sinXZ = Math.sin(angles.xz);
-  const sinYZ = Math.sin(angles.yz);
-  const sinXW = Math.sin(angles.xw);
-  const sinYW = Math.sin(angles.yw);
-  const sinZW = Math.sin(angles.zw);
+  const spatialSin = overrides?.spatialSin;
+  const spatialCos = overrides?.spatialCos;
+  const hyperspatialSin = overrides?.hyperspatialSin;
+  const hyperspatialCos = overrides?.hyperspatialCos;
 
-  const cosXY = Math.cos(angles.xy);
-  const cosXZ = Math.cos(angles.xz);
-  const cosYZ = Math.cos(angles.yz);
-  const cosXW = Math.cos(angles.xw);
-  const cosYW = Math.cos(angles.yw);
-  const cosZW = Math.cos(angles.zw);
+  const sinXY = spatialSin?.[0] ?? Math.sin(angles.xy);
+  const sinXZ = spatialSin?.[1] ?? Math.sin(angles.xz);
+  const sinYZ = spatialSin?.[2] ?? Math.sin(angles.yz);
+  const sinXW = hyperspatialSin?.[0] ?? Math.sin(angles.xw);
+  const sinYW = hyperspatialSin?.[1] ?? Math.sin(angles.yw);
+  const sinZW = hyperspatialSin?.[2] ?? Math.sin(angles.zw);
+
+  const cosXY = spatialCos?.[0] ?? Math.cos(angles.xy);
+  const cosXZ = spatialCos?.[1] ?? Math.cos(angles.xz);
+  const cosYZ = spatialCos?.[2] ?? Math.cos(angles.yz);
+  const cosXW = hyperspatialCos?.[0] ?? Math.cos(angles.xw);
+  const cosYW = hyperspatialCos?.[1] ?? Math.cos(angles.yw);
+  const cosZW = hyperspatialCos?.[2] ?? Math.cos(angles.zw);
 
   target[8] = sinXY;
   target[9] = sinXZ;
@@ -76,12 +96,15 @@ export function packRotationUniformData(
   target[22] = cosZW;
   target[23] = 0.0;
 
-  const normXY = Math.min(Math.abs(angles.xy) / MAX_PLANE_ANGLE, 1);
-  const normXZ = Math.min(Math.abs(angles.xz) / MAX_PLANE_ANGLE, 1);
-  const normYZ = Math.min(Math.abs(angles.yz) / MAX_PLANE_ANGLE, 1);
-  const normXW = Math.min(Math.abs(angles.xw) / MAX_PLANE_ANGLE, 1);
-  const normYW = Math.min(Math.abs(angles.yw) / MAX_PLANE_ANGLE, 1);
-  const normZW = Math.min(Math.abs(angles.zw) / MAX_PLANE_ANGLE, 1);
+  const spatialMagnitudes = overrides?.spatialMagnitudes;
+  const hyperspatialMagnitudes = overrides?.hyperspatialMagnitudes;
+
+  const normXY = spatialMagnitudes?.[0] ?? Math.min(Math.abs(angles.xy) / MAX_PLANE_ANGLE, 1);
+  const normXZ = spatialMagnitudes?.[1] ?? Math.min(Math.abs(angles.xz) / MAX_PLANE_ANGLE, 1);
+  const normYZ = spatialMagnitudes?.[2] ?? Math.min(Math.abs(angles.yz) / MAX_PLANE_ANGLE, 1);
+  const normXW = hyperspatialMagnitudes?.[0] ?? Math.min(Math.abs(angles.xw) / MAX_PLANE_ANGLE, 1);
+  const normYW = hyperspatialMagnitudes?.[1] ?? Math.min(Math.abs(angles.yw) / MAX_PLANE_ANGLE, 1);
+  const normZW = hyperspatialMagnitudes?.[2] ?? Math.min(Math.abs(angles.zw) / MAX_PLANE_ANGLE, 1);
 
   target[24] = normXY;
   target[25] = normXZ;
@@ -98,12 +121,28 @@ export function packRotationUniformData(
   target[META_OFFSET + 2] = normSpatialMagnitude(angles);
   target[META_OFFSET + 3] = normHyperspatialMagnitude(angles);
 
-  const matrix = rotationMatrixFromAngles(angles, matrixOut);
-  target.set(matrix, MATRIX_OFFSET);
+  if (overrides?.matrix) {
+    for (let i = 0; i < 16; i += 1) {
+      matrixOut[i] = overrides.matrix[i] ?? 0;
+    }
+    target.set(matrixOut, MATRIX_OFFSET);
+  } else {
+    const matrix = rotationMatrixFromAngles(angles, matrixOut);
+    target.set(matrix, MATRIX_OFFSET);
+  }
 
-  const dual = composeDualQuaternion(angles, leftQuatOut, rightQuatOut);
-  target.set(dual.left, LEFT_QUAT_OFFSET);
-  target.set(dual.right, RIGHT_QUAT_OFFSET);
+  if (overrides?.dual) {
+    for (let i = 0; i < 4; i += 1) {
+      leftQuatOut[i] = overrides.dual.left[i] ?? 0;
+      rightQuatOut[i] = overrides.dual.right[i] ?? 0;
+    }
+    target.set(leftQuatOut, LEFT_QUAT_OFFSET);
+    target.set(rightQuatOut, RIGHT_QUAT_OFFSET);
+  } else {
+    const dual = composeDualQuaternion(angles, leftQuatOut, rightQuatOut);
+    target.set(dual.left, LEFT_QUAT_OFFSET);
+    target.set(dual.right, RIGHT_QUAT_OFFSET);
+  }
 }
 
 function normSpatialMagnitude(angles: RotationAngles): number {
@@ -145,9 +184,9 @@ export class RotationUniformBuffer {
     gl.bindBufferBase(gl.UNIFORM_BUFFER, bindingIndex, this.buffer);
   }
 
-  update(snapshot: RotationSnapshot) {
+  update(snapshot: RotationSnapshot, overrides: RotationUniformOverrides | null = null) {
     const { data, gl } = this;
-    packRotationUniformData(snapshot, data, this.matrix, this.leftQuat, this.rightQuat);
+    packRotationUniformData(snapshot, data, this.matrix, this.leftQuat, this.rightQuat, overrides);
     gl.bindBuffer(gl.UNIFORM_BUFFER, this.buffer);
     gl.bufferSubData(gl.UNIFORM_BUFFER, 0, data);
   }
