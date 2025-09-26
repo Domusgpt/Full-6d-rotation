@@ -1,6 +1,7 @@
 import { RotationUniformBuffer, type RotationAngles } from './rotationUniforms';
 import { UniformSyncQueue, type UniformSyncMetrics } from './uniformSyncQueue';
 import type { GeometryData } from '../geometry/types';
+import { flipPixelsVertically } from './frameUtils';
 
 export interface HypercubeCoreOptions {
   projectionDepth?: number;
@@ -84,6 +85,24 @@ export class HypercubeCore {
 
   getUniformMetrics(): UniformSyncMetrics {
     return { ...this.uniformMetrics };
+  }
+
+  captureFrame() {
+    const { gl } = this;
+    const width = gl.drawingBufferWidth;
+    const height = gl.drawingBufferHeight;
+    if (width === 0 || height === 0) {
+      return { width, height, pixels: new Uint8ClampedArray(0) };
+    }
+
+    if (gl.readBuffer) {
+      gl.readBuffer(gl.BACK);
+    }
+
+    const raw = new Uint8Array(width * height * 4);
+    gl.readPixels(0, 0, width, height, gl.RGBA, gl.UNSIGNED_BYTE, raw);
+    const pixels = flipPixelsVertically(width, height, raw);
+    return { width, height, pixels };
   }
 
   start() {

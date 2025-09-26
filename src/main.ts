@@ -14,8 +14,23 @@ const geometrySelect = document.getElementById('geometry') as HTMLSelectElement;
 const projectionDepthSlider = document.getElementById('projectionDepth') as HTMLInputElement;
 const lineWidthSlider = document.getElementById('lineWidth') as HTMLInputElement;
 const rotationControlsContainer = document.getElementById('rotation-controls') as HTMLDivElement;
+const uniformUploadsEl = document.getElementById('uniform-uploads') as HTMLSpanElement;
+const uniformSkipsEl = document.getElementById('uniform-skips') as HTMLSpanElement;
+const datasetPendingEl = document.getElementById('dataset-pending') as HTMLSpanElement;
+const datasetTotalEl = document.getElementById('dataset-total') as HTMLSpanElement;
 
-if (!canvas || !statusEl || !geometrySelect || !projectionDepthSlider || !lineWidthSlider || !rotationControlsContainer) {
+if (
+  !canvas ||
+  !statusEl ||
+  !geometrySelect ||
+  !projectionDepthSlider ||
+  !lineWidthSlider ||
+  !rotationControlsContainer ||
+  !uniformUploadsEl ||
+  !uniformSkipsEl ||
+  !datasetPendingEl ||
+  !datasetTotalEl
+) {
   throw new Error('Required DOM nodes are missing');
 }
 
@@ -30,6 +45,7 @@ rotationBus.subscribe(snapshot => core.updateRotation(snapshot));
 const datasetExport = new DatasetExportService();
 const pspStream = new LocalPspStream();
 const focusDirector = new FocusDirector(geometryController, rotationBus, { fallbackGeometry: 'tesseract' });
+const MAX_PENDING_FRAMES = 48;
 
 const rotationState: RotationSnapshot = {
   ...ZERO_ROTATION,
@@ -56,6 +72,17 @@ function pushRotationSnapshot(timestamp: number) {
 
   rotationBus.push({ ...rotationState });
   updateRotationLabels(rotationState, manualOffsets);
+  updateTelemetry();
+}
+
+function updateTelemetry() {
+  const uniformMetrics = core.getUniformMetrics();
+  uniformUploadsEl.textContent = `${uniformMetrics.uploads}/${uniformMetrics.enqueued}`;
+  uniformSkipsEl.textContent = uniformMetrics.skipped.toString();
+
+  const datasetMetrics = datasetExport.getMetrics();
+  datasetPendingEl.textContent = datasetMetrics.pending.toString();
+  datasetTotalEl.textContent = datasetMetrics.totalEncoded.toString();
 }
 
 updateRotationLabels = createRotationControls(rotationControlsContainer, manualOffsets, () => {
@@ -107,21 +134,34 @@ core.start();
 setInterval(() => focusDirector.update(performance.now()), 1000);
 
 rotationBus.subscribe(snapshot => {
-  const pixels = new Uint8ClampedArray([0, 0, 0, 255]);
+  const datasetMetrics = datasetExport.getMetrics();
+  if (datasetMetrics.pending >= MAX_PENDING_FRAMES) {
+    return;
+  }
+
+  const frame = core.captureFrame();
+  if (frame.width === 0 || frame.height === 0) {
+    return;
+  }
+
   datasetExport.enqueue({
-    width: 1,
-    height: 1,
-    pixels,
+    width: frame.width,
+    height: frame.height,
+    pixels: frame.pixels,
     metadata: {
       timestamp: snapshot.timestamp,
       rotationAngles: [snapshot.xy, snapshot.xz, snapshot.yz, snapshot.xw, snapshot.yw, snapshot.zw]
     }
   });
+  updateTelemetry();
 });
 
 setInterval(async () => {
   const frames = await datasetExport.flush();
-  frames.forEach(frame => pspStream.publish(frame));
+  if (frames.length) {
+    frames.forEach(frame => pspStream.publish(frame));
+    updateTelemetry();
+  }
 }, 2000);
 
 function createRotationControls(
@@ -190,8 +230,11 @@ function startSyntheticRotation(autoState: RotationAngles, onUpdate: (timestamp:
     }
 
     onUpdate(now);
-    requestAnimationFrame(tick);
-  };
+  requestAnimationFrame(tick);
+};
 
   requestAnimationFrame(tick);
 }
+
+updateTelemetry();
+setInterval(updateTelemetry, 1000);

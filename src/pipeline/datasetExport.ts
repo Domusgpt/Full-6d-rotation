@@ -17,8 +17,16 @@ export interface EncodedFrame {
   metadata: FrameMetadata;
 }
 
+export interface DatasetExportMetrics {
+  pending: number;
+  totalEncoded: number;
+  lastFormat: FrameFormat | null;
+}
+
 export class DatasetExportService {
   private readonly queue: FramePayload[] = [];
+  private totalEncoded = 0;
+  private lastFormat: FrameFormat | null = null;
 
   enqueue(frame: FramePayload) {
     this.queue.push(frame);
@@ -26,13 +34,26 @@ export class DatasetExportService {
 
   async flush(format: FrameFormat = 'image/png'): Promise<EncodedFrame[]> {
     const results: EncodedFrame[] = [];
-    for (const frame of this.queue.splice(0)) {
+    const frames = this.queue.splice(0);
+    for (const frame of frames) {
       results.push({
         blob: await this.encodeFrame(frame, format),
         metadata: frame.metadata
       });
     }
+    if (results.length > 0) {
+      this.totalEncoded += results.length;
+      this.lastFormat = format;
+    }
     return results;
+  }
+
+  getMetrics(): DatasetExportMetrics {
+    return {
+      pending: this.queue.length,
+      totalEncoded: this.totalEncoded,
+      lastFormat: this.lastFormat
+    };
   }
 
   private async encodeFrame(frame: FramePayload, format: FrameFormat): Promise<Blob> {
