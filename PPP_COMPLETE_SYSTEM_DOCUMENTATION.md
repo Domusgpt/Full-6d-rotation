@@ -398,6 +398,75 @@ Result: Single visual representation containing multiple data modalities
 - **Computer Vision**: Integration with OpenCV and modern deep learning frameworks
 - **Quantum Computing**: Specialized quantum syndrome processing and visualization tools
 
+### 5.3 HypercubeCore–CPE Rebuild Blueprint (Clean-Slate MVP)
+
+To ensure the six degrees of rotational freedom are implemented correctly and verifiably inside HypercubeCore, the MVP is restructured around a clean-room rebuild. Each stage defines required artefacts, measurable exit criteria, and explicit ownership of the SO(4) rotation chain so the resulting system can be trusted for live sensor embodiment and PSP generation.
+
+#### 5.3.1 Stage 0 – Foundational Scaffolding
+- **Repository Reset & Module Layout**: Establish a lean `/core` directory containing `HypercubeCore`, `RotationUniforms`, `GeometryCatalog`, `ProjectionBridge`, and `IOPipelines`. Remove legacy assets that obscure dependency flow.
+- **TypeScript First Build**: Stand up a TypeScript/WebGL2 toolchain with Vite (or equivalent) to guarantee typed uniforms, enum-guarded geometry IDs, and compile-time shader string validation.
+- **Validation Harness**: Create a headless Jest + gl-matrix test suite that can render offscreen via headless-gl, confirming shader compilation and rotation outputs before browser execution.
+
+#### 5.3.2 Stage 1 – Rotation Kernel & Uniform Contract
+- **Explicit SO(4) Struct**: Author `RotationUniforms.ts` exporting `RotationAngles` and `RotationDualQuaternion` interfaces, backing a rotation UBO that carries the six angles, precomputed trig pairs, the 4×4 matrix, and dual-quaternion slices for shader and analysis parity.
+- **Angular Velocity Channels**: Extend the rotation UBO with per-plane angular velocities so shaders and downstream analytics can react to instantaneous six-plane motion without deriving it on the GPU.
+- **Precomputed Plane Trig**: Extend the rotation UBO with sine and cosine pairs for each plane so GPU shaders apply six rotations without per-vertex trigonometry and remain numerically stable at high angular velocities.
+- **Plane Magnitude Channels**: Append normalized per-plane magnitudes (|θ|/π) for spatial and hyperspatial triplets so shaders can balance palette, chaos, and thickness responses against the relative strength of each rotational axis without additional CPU work.
+- **Reference Implementation**: Implement `applySequentialRotations(vec4 v, RotationAngles angles)` using the documented plane order, alongside property-based tests comparing against `SO4` matrices from a Python oracle.
+- **Dual Quaternion Path**: Provide `composeDualQuaternion(angles)` with validation that sequential and dual-quaternion outputs match within ε < 1e-4 radians for randomized inputs.
+- **HypercubeCore Wiring**: Ensure the render loop reads only from the typed uniform buffer; mutation occurs exclusively via `RotationBus.pushSnapshot()` to avoid hidden state.
+
+#### 5.3.3 Stage 2 – Geometry Catalog & GPU Residency
+- **Geometry Definitions**: Rebuild tesseract, 24-cell, and 600-cell subsets as declarative JSON/TS assets (`vertices`, `edges`, `cells`) consumed by `GeometryCatalog`. Include unit tests verifying combinatorics (Euler characteristic = 0).
+- **GPU Upload Strategy**: Allocate static vertex buffers per geometry with instanced attributes for edges/cells. Design a `GeometryBinding` descriptor so rotations operate on GPU buffers without CPU reconstruction.
+- **Dynamic Selection Protocol**: Through `GeometryController.setActiveGeometry(id, rotationProfile)`, bind the appropriate buffers and configure projection hints (e.g., cell highlighting).
+
+#### 5.3.4 Stage 3 – Data Ingestion & Rotation Mapping
+- **Kerbelized Parserator v2**: Define a standalone ingestion microservice (Node + WebSocket) with pluggable preprocessing (`lowPassGyro`, `gravityIsolation`, `featureWindow`). Outputs normalized `RotationSnapshot` objects with timestamp and confidence.
+- **Implementation Note – Parserator MVP**: The current browser build ships with a Kerbelized Parserator core that packs the six SO(4) planes into a 128-channel UBO slice, applies configurable exponential smoothing, and enforces confidence floors before relaying frames to HypercubeCore. This module is already wired to the IMU WebSocket client, providing the deterministic upload loop required by the CPE.
+- **Sensor Coupling Profiles**: Implement `PlaneMappingProfile` records that map IMU channels to rotation planes with per-axis gain, clamp, and smoothing coefficients.
+- **Deterministic UBO Updates**: Within HypercubeCore, integrate a `UniformSyncQueue` that batches exactly one UBO upload per animation frame, guarded by dirty flags and measured via performance counters.
+- **Harmonic Rotation Loom**: Ship a default six-plane oscillator that weaves golden-ratio frequency ratios across spatial and hyperspatial planes so the Extrument always exposes a musically coherent SO(4) flow even before live sensors attach.
+- **Replay Harness**: Ship a CLI that replays recorded IMU datasets into the parserator, enabling regression tests without hardware.
+
+#### 5.3.5 Stage 4 – Projection Bridge & PSP Export
+- **ProjectionBridge API**: Consolidate perspective, stereographic, and orthographic projections behind `ProjectionBridge.configure({mode, parameters})`, returning shader snippets for injection.
+- **Multi-Context Budgeting**: Implement a scheduler that enforces the 20-context ceiling with priority tiers (live viewport, PSP export, ML tap). Include telemetry on GPU memory per context to maintain <4 GB usage.
+- **Uber-Shader Refactor**: Replace ad-hoc string concatenation with tagged-template shader builders ensuring injection points for geometry, projection, and color modules while sharing utility libraries (noise, palettes, rotation matrices).
+- **Dataset Export Service**: Provide a worker-thread pipeline that renders PSP frames to ImageBitmap, encodes to PNG/WebP/WebM with rotation metadata, and streams to disk or WebRTC for ML consumers.
+
+#### 5.3.6 Stage 5 – Metacognitive Feedback & HAOS Integration
+- **Inference Docking**: Define a `PspStream` interface emitting frame + metadata tuples consumable by ViT/CNN services via WebRTC DataChannels or gRPC-Web.
+- **Focus Feedback Loop**: Build `FocusDirector` which ingests ML guidance (`focusHints`, `rotationAdjustments`) and recalibrates parserator gain matrices or geometry selection in near-real time.
+- **HOAS Bridge Contract**: Document JSON-RPC methods (`setFocusProfile`, `queueRotationScript`, `requestSnapshot`) with audit logging so higher-level HAOS agents can orchestrate sessions.
+- **Safety & Recovery**: Implement watchdog timers and fallback geometries that activate when inference or ingestion fails, maintaining continuous though degraded visualization.
+
+#### 5.3.7 Stage 6 – Verification, Tooling & Delivery
+- **Continuous Integration**: Configure CI to run unit tests (rotation parity, geometry invariants), integration smoke tests (headless render diff), and lint/format checks on every commit.
+- **Performance Budget Tests**: Automate frame-time benchmarks with synthetic IMU streams to ensure ≥60 fps and <4 ms sensor-to-uniform latency on reference hardware (RTX 3060, M2 Pro).
+- **Developer Tooling**: Provide Storybook-like sandboxes for geometry inspection, rotation debug sliders, and shader playgrounds to accelerate research iteration.
+- **Documentation & Onboarding**: Author living docs describing API contracts, deployment topology (browser + Kubernetes workers), and troubleshooting guides, ensuring the rebuild is teachable and maintainable.
+
+
+#### 5.3.8 Implementation Status & Remaining Work
+
+**Delivered in this repository**
+
+- *Stage 0 scaffolding*: Vite + TypeScript toolchain (`package.json`, `vite.config.ts`, `tsconfig.json`) and the `/src/core` layout keep the rendering, ingestion, and geometry modules isolated for verification.
+- *Stage 1 rotation kernel*: `src/core/rotationUniforms.ts`, `src/core/so4.ts`, and accompanying Vitest suites enforce the six-plane uniform contract, sequential rotation parity, and dual-quaternion agreement.
+- *Stage 2 geometry catalogue*: Declarative tesseract and 24-cell data sets (`src/geometry/tesseract.ts`, `src/geometry/twentyFourCell.ts`) are uploaded through `GeometryCatalog`, giving HypercubeCore live SO(4) geometry to animate.
+- *Stage 3 ingestion loop*: `src/ingestion/kerbelizedParserator.ts`, `src/pipeline/imuStream.ts`, and the new `src/ingestion/imuMapper.test.ts` confirm that the parser pushes all six rotational planes from IMU packets into the UBO stream with deterministic smoothing.
+- *Projection bridge + style feedback*: `src/core/projectionBridge.ts`, `src/core/hypercubeCore.ts`, and `src/core/rotationDynamics.ts` combine rotation uniforms with projection uniforms and energy metrics so shaders receive synchronized rotation, palette, and chaos data every frame.
+
+**Outstanding for the MVP**
+
+- Extend the geometry catalogue with a 600-cell subset and introduce reusable GPU bindings/instancing so massive polychora do not require CPU rebinding per frame.
+- Add the UniformSyncQueue/performance counters described in Stage 3 to instrument UBO upload cadence and catch multi-context contention.
+- Finish the dataset export surface (PNG/WebP/WebM) and PSP multi-context scheduler so ViT/CNN consumers can subscribe without blocking the live viewport.
+- Stand up the HAOS bridge layer (`FocusDirector`, `PspStream`, JSON-RPC contracts) and connect Bayesian focus feedback to parser gain updates.
+- Automate performance + regression tests inside CI to lock the ≥60 fps / <4 ms budget before expanding to Kubernetes or WebGPU back ends.
+
+
 ---
 
 ## Part VI: Technical Specifications & Performance Metrics
