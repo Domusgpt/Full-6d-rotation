@@ -1,7 +1,9 @@
 
 ### Hypercube Lattice WebGL Visualizer
 
-*   **File Path:** `/mnt/c/Users/millz/Desktop/hypercubeapp0.2/app.js`
+> **Current Implementation:** The production version of this visualizer now lives inside the HypercubeCore TypeScript modules: `src/core/hypercubeCore.ts`, `src/core/uberShaderBuilder.ts`, and `src/core/rotationUniforms.ts`, with fragment shader assembly handled by `UberShaderBuilder`. The historical notes below describe the earlier prototype hosted in `app.js` and remain for archival context.
+
+*   **Historical File Path:** `/mnt/c/Users/millz/Desktop/hypercubeapp0.2/app.js`
 *   **Dependencies:** WebGL
 *   **Visual Description:** This is a highly customizable WebGL visualizer that renders a 4D hypercube lattice. It supports various visual parameters that can be dynamically controlled, creating effects like morphing, RGB glitching, rotation, and density changes. The visualizer's color scheme and overall "feel" can be shifted to match different "universes" (Timekeeper, Soundfields, Spiritual, World Builder, Design Patterns, Fusion Lab).
 *   **Key Features & Effects:**
