@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { DatasetManifestBuilder, createManifestDownloadName, type DatasetTelemetryLog } from './datasetManifest';
+import type { ConfidenceTrendState } from './confidenceTrend';
 
 const sampleAngles: [number, number, number, number, number, number] = [0, 0.1, 0.2, 0.3, 0.4, 0.5];
 
@@ -217,5 +218,28 @@ describe('DatasetManifestBuilder', () => {
     expect(trimmed?.capacity).toBe(1);
     expect(trimmed?.events).toHaveLength(1);
     expect(trimmed?.events[0].id).toBe(11);
+  });
+
+  it('stores confidence trend samples and rehydrates them', () => {
+    const builder = new DatasetManifestBuilder({ sessionId: 'trend-session' });
+    const trendState: ConfidenceTrendState = {
+      values: [0.2, 1.4, -0.5],
+      maxPoints: 60,
+      updatedAt: 1234
+    };
+
+    builder.updateConfidenceTrend(trendState);
+
+    const manifest = builder.getManifest();
+    expect(manifest.confidenceTrend).toBeDefined();
+    expect(manifest.confidenceTrend?.values).toEqual([0.2, 1, 0]);
+    expect(manifest.confidenceTrend?.maxPoints).toBe(60);
+    expect(manifest.confidenceTrend?.updatedAt).toBe(1234);
+
+    const rehydrated = new DatasetManifestBuilder({ hydrateFrom: manifest });
+    expect(rehydrated.getManifest().confidenceTrend?.values).toEqual([0.2, 1, 0]);
+
+    builder.updateConfidenceTrend({ values: [], maxPoints: 10, updatedAt: 0 });
+    expect(builder.getManifest().confidenceTrend).toBeUndefined();
   });
 });

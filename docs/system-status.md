@@ -59,7 +59,7 @@ captures the manual QA flows you can run after producing a testable build.
 ## 5. Dataset Export Pipeline
 | Component | Location | Status | Notes |
 | --- | --- | --- | --- |
-| Manifest builder | `src/pipeline/datasetManifest.ts` | ✅ Stable | Deterministic file naming, p95 latency aggregation, and hydration from prior manifests. |
+| Manifest builder | `src/pipeline/datasetManifest.ts` | ✅ Stable | Deterministic file naming, p95 latency aggregation, hydration from prior manifests, and persists confidence-trend sparkline samples. |
 | Dataset exporter | `src/pipeline/datasetExport.ts` | ✅ Stable | Orchestrates capture, encoding (worker or JSON fallback), and manifest persistence. |
 | Frame encoding | `src/pipeline/frameEncoding.ts`, `src/pipeline/datasetWorker.ts` | ✅ Stable | Worker-backed pipeline with fallback path; tests cover both execution modes. |
 | PSP stream | `src/pipeline/pspStream.ts` | ✅ Stable | Streams captured frames for progressive preview during exports. |
@@ -67,7 +67,7 @@ captures the manual QA flows you can run after producing a testable build.
 ### Manual QA
 1. Accumulate frames (allow the capture queue to run until non-zero frame count is shown).
 2. Click **Download Manifest**; verify file name uses timestamped deterministic format.
-3. Inspect manifest JSON for telemetry envelopes, confidence histogram, and extrument state.
+3. Inspect manifest JSON for telemetry envelopes, confidence histogram, extrument state, and the `confidenceTrend` sparkline payload.
 
 ## 6. Control Panel & UI Layer
 | Component | Location | Status | Notes |

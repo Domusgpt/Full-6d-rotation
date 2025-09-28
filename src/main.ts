@@ -145,7 +145,7 @@ try {
   console.warn('Failed to load dataset manifest', error);
 }
 
-let persistedTrendState: ConfidenceTrendState | undefined;
+let persistedTrendState: ConfidenceTrendState | undefined = persistedManifest?.confidenceTrend;
 try {
   if (typeof localStorage !== 'undefined') {
     const rawTrend = localStorage.getItem(DATASET_CONFIDENCE_TREND_STORAGE_KEY);
@@ -324,6 +324,7 @@ function formatLatency(avg: number, max: number) {
 }
 
 function updateManifestTelemetry() {
+  manifestBuilder.updateConfidenceTrend(confidenceTrend.toJSON());
   const manifest = manifestBuilder.getManifest();
   manifestFramesEl.textContent = manifest.stats.totalFrames.toString();
   manifestP95El.textContent =
@@ -387,6 +388,7 @@ function updateManifestTelemetry() {
 
 function persistManifest() {
   try {
+    manifestBuilder.updateConfidenceTrend(confidenceTrend.toJSON());
     manifestBuilder.updateTelemetry(telemetryLoom.snapshot());
     if (typeof localStorage === 'undefined') {
       return;
@@ -405,6 +407,10 @@ function persistConfidenceTrend() {
       return;
     }
     const payload = confidenceTrend.toJSON();
+    if (payload.values.length === 0) {
+      localStorage.removeItem(DATASET_CONFIDENCE_TREND_STORAGE_KEY);
+      return;
+    }
     localStorage.setItem(DATASET_CONFIDENCE_TREND_STORAGE_KEY, JSON.stringify(payload));
   } catch (error) {
     console.warn('Failed to persist confidence trend', error);

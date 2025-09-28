@@ -1,3 +1,5 @@
+import { ConfidenceTrend } from './confidenceTrend';
+import type { ConfidenceTrendState } from './confidenceTrend';
 import type { FrameFormat, FrameMetadata, PipelineLatencyEnvelope } from './datasetTypes';
 import type { TelemetryLogSnapshot, TelemetryEvent, TelemetryCategory } from './telemetryLoom';
 
@@ -42,6 +44,7 @@ export interface DatasetManifest {
   stats: DatasetManifestStatistics;
   ingestion?: DatasetIngestionConfig;
   telemetry?: DatasetTelemetryLog;
+  confidenceTrend?: ConfidenceTrendState;
 }
 
 export interface DatasetTelemetryLog extends TelemetryLogSnapshot {}
@@ -78,6 +81,7 @@ export class DatasetManifestBuilder {
   private nextIndex: number;
   private readonly totalLatencies: number[] = [];
   private confidenceHistogram: ConfidenceHistogram;
+  private confidenceTrend?: ConfidenceTrendState;
 
   constructor(options: DatasetManifestBuilderOptions = {}) {
     this.prefix = options.prefix ?? options.hydrateFrom?.prefix ?? DEFAULT_PREFIX;
@@ -94,6 +98,12 @@ export class DatasetManifestBuilder {
       } else {
         this.confidenceHistogram = createEmptyHistogram();
       }
+      const hydratedTrend = normalizeConfidenceTrendState(this.manifest.confidenceTrend);
+      if (hydratedTrend) {
+        this.confidenceTrend = hydratedTrend;
+      } else {
+        delete this.manifest.confidenceTrend;
+      }
       for (const frame of this.manifest.frames) {
         const latency = computeTotalLatency(frame.latency);
         if (latency !== null) {
@@ -104,6 +114,7 @@ export class DatasetManifestBuilder {
         }
       }
       this.updateStatistics();
+      this.syncConfidenceTrend();
     } else {
       const sessionId = options.sessionId ?? createSessionId();
       this.confidenceHistogram = createEmptyHistogram();
@@ -147,6 +158,7 @@ export class DatasetManifestBuilder {
   }
 
   getManifest(): DatasetManifest {
+    this.syncConfidenceTrend();
     return cloneManifest(this.manifest);
   }
 
@@ -166,6 +178,24 @@ export class DatasetManifestBuilder {
     this.manifest.telemetry = normalizeTelemetryLog(log);
   }
 
+  updateConfidenceTrend(state: ConfidenceTrendState | null | undefined): void {
+    if (!state) {
+      this.confidenceTrend = undefined;
+      delete this.manifest.confidenceTrend;
+      return;
+    }
+
+    const normalized = normalizeConfidenceTrendState(state);
+    if (!normalized || normalized.values.length === 0) {
+      this.confidenceTrend = undefined;
+      delete this.manifest.confidenceTrend;
+      return;
+    }
+
+    this.confidenceTrend = normalized;
+    this.manifest.confidenceTrend = cloneConfidenceTrend(normalized);
+  }
+
   private createAssetName(format: FrameFormat): string {
     const extension = formatToExtension(format);
     const index = this.nextIndex + 1;
@@ -181,6 +211,7 @@ export class DatasetManifestBuilder {
       );
       this.confidenceHistogram = emptyHistogram;
       this.manifest.stats = createEmptyStats(emptyHistogram);
+      this.syncConfidenceTrend();
       return;
     }
 
@@ -200,6 +231,15 @@ export class DatasetManifestBuilder {
       lastUpdated: Date.now(),
       confidenceHistogram: cloneHistogram(this.confidenceHistogram)
     };
+    this.syncConfidenceTrend();
+  }
+
+  private syncConfidenceTrend(): void {
+    if (this.confidenceTrend && this.confidenceTrend.values.length > 0) {
+      this.manifest.confidenceTrend = cloneConfidenceTrend(this.confidenceTrend);
+    } else {
+      delete this.manifest.confidenceTrend;
+    }
   }
 
   private recordConfidence(value: number) {
@@ -396,4 +436,28 @@ function cloneMetadata(metadata: Record<string, unknown>): Record<string, unknow
 
 function isTelemetryCategory(value: unknown): value is TelemetryCategory {
   return value === 'parserator' || value === 'ingestion' || value === 'extrument' || value === 'system';
+}
+
+function normalizeConfidenceTrendState(
+  state: ConfidenceTrendState | null | undefined
+): ConfidenceTrendState | undefined {
+  if (!state) {
+    return undefined;
+  }
+
+  try {
+    const trend = new ConfidenceTrend({ state });
+    const normalized = trend.toJSON();
+    return normalized.values.length ? normalized : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function cloneConfidenceTrend(state: ConfidenceTrendState): ConfidenceTrendState {
+  return {
+    values: [...state.values],
+    maxPoints: state.maxPoints,
+    updatedAt: state.updatedAt
+  };
 }

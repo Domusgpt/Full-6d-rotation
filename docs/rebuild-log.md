@@ -150,3 +150,19 @@ This log captures the follow-on work after the “Implement staged rebuild bluep
 ### Next checkpoints
 - Thread the confidence trend into manifest downloads so offline analysis retains sparkline samples.
 - Overlay parserator confidence-floor changes on the sparkline to correlate configuration shifts with confidence coverage swings.
+
+## Session – Confidence Trend Archival & Manifest Hydration
+
+### What changed
+- **Manifest confidence trend snapshots** (`datasetManifest.ts`, `datasetManifest.test.ts`) – manifest builder now sanitises and persists the sparkline samples from the control panel, ensuring downloads include the historical high-confidence ratios.
+- **Control-panel persistence** (`main.ts`) – hydrates trend state from stored manifests, updates the builder before telemetry reads, and clears stale localStorage entries when the trend resets.
+- **System-status docs** (`docs/system-status.md`) – QA checklist now calls out the archived `confidenceTrend` payload so operators verify exports capture the sparkline history.
+
+### Why these pieces matter
+- Capturing the **confidence trend inside manifests** lets offline analysts correlate sparkline swings with telemetry logs without relying on browser storage.
+- **Hydrating from manifest data** keeps the sparkline consistent across reloads or when manifests travel between machines, reinforcing the rebuild blueprint’s determinism goals.
+- Documenting the **QA expectation** prevents the archived trend from regressing silently during future refactors.
+
+### Next checkpoints
+- Attach parserator calibration annotations to each trend sample so sparkline inflections can be traced back to profile or confidence-floor changes.
+- Include confidence trend payloads alongside PSP frame bundles to keep visual, telemetry, and confidence data aligned in offline review kits.
