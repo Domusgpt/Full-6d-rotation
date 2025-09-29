@@ -36,4 +36,33 @@ describe('SO(4) rotations', () => {
       }
     }
   });
+
+  it('maintains sequential/matrix parity across random samples', () => {
+    const iterations = 25;
+    for (let i = 0; i < iterations; i++) {
+      const vector = vec4.fromValues(
+        Math.random() * 2 - 1,
+        Math.random() * 2 - 1,
+        Math.random() * 2 - 1,
+        Math.random() * 2 - 1
+      );
+
+      const angles: RotationAngles = {
+        xy: (Math.random() * 2 - 1) * Math.PI,
+        xz: (Math.random() * 2 - 1) * Math.PI,
+        yz: (Math.random() * 2 - 1) * Math.PI,
+        xw: (Math.random() * 2 - 1) * Math.PI,
+        yw: (Math.random() * 2 - 1) * Math.PI,
+        zw: (Math.random() * 2 - 1) * Math.PI
+      };
+
+      const sequential = applySequentialRotations(vector, angles);
+      const matrix = rotationMatrixFromAngles(angles);
+      const matrixResult = vec4.transformMat4(vec4.create(), vector, matrix);
+
+      for (let axis = 0; axis < 4; axis++) {
+        expect(sequential[axis]).toBeCloseTo(matrixResult[axis], 1e-5);
+      }
+    }
+  });
 });
