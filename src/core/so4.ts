@@ -154,24 +154,148 @@ function rotateZW(out: vec4 | mat4, angle: number): typeof out {
 }
 
 export function composeDualQuaternion(angles: RotationAngles) {
-  const { xy, xz, yz, xw, yw, zw } = angles;
-  const left = quaternionFromEuler(xy, xz, yz);
-  const right = quaternionFromEuler(xw, yw, zw);
+  const matrix = rotationMatrixFromAngles(angles);
+
+  const basisX = vec4.fromValues(1, 0, 0, 0);
+  const basisY = vec4.fromValues(0, 1, 0, 0);
+  const basisZ = vec4.fromValues(0, 0, 1, 0);
+  const basisW = vec4.fromValues(0, 0, 0, 1);
+
+  const A = vec4.transformMat4(vec4.create(), basisW, matrix);
+  const B = vec4.transformMat4(vec4.create(), basisX, matrix);
+  const C = vec4.transformMat4(vec4.create(), basisY, matrix);
+  const D = vec4.transformMat4(vec4.create(), basisZ, matrix);
+
+  const quatA = vectorToQuaternion(A);
+  const quatB = vectorToQuaternion(B);
+  const quatC = vectorToQuaternion(C);
+  const quatD = vectorToQuaternion(D);
+
+  const aConjugate = conjugateQuaternion(quatA);
+  const rotatedI = multiplyQuaternions(quatB, aConjugate);
+  const rotatedJ = multiplyQuaternions(quatC, aConjugate);
+  const rotatedK = multiplyQuaternions(quatD, aConjugate);
+
+  const rotation3 = [
+    [rotatedI[1], rotatedJ[1], rotatedK[1]],
+    [rotatedI[2], rotatedJ[2], rotatedK[2]],
+    [rotatedI[3], rotatedJ[3], rotatedK[3]]
+  ];
+
+  const leftQuatWFirst = quaternionFromRotationMatrix3(rotation3);
+  const conjugateRight = multiplyQuaternions(conjugateQuaternion(leftQuatWFirst), quatA);
+  const rightQuatWFirst = normalizeQuaternion(conjugateQuaternion(conjugateRight));
+
+  const left = quaternionToVector(leftQuatWFirst);
+  const right = quaternionToVector(rightQuatWFirst);
+
   return { left, right };
 }
 
-function quaternionFromEuler(ax: number, ay: number, az: number): [number, number, number, number] {
-  const cx = Math.cos(ax * 0.5);
-  const sx = Math.sin(ax * 0.5);
-  const cy = Math.cos(ay * 0.5);
-  const sy = Math.sin(ay * 0.5);
-  const cz = Math.cos(az * 0.5);
-  const sz = Math.sin(az * 0.5);
+export function applyDualQuaternionRotation(vector: vec4, angles: RotationAngles): vec4 {
+  const { left, right } = composeDualQuaternion(angles);
+  const leftQuat = normalizeQuaternion(toWFirst(left));
+  const rightQuat = normalizeQuaternion(toWFirst(right));
+  const vectorQuat = [vector[3], vector[0], vector[1], vector[2]] as Quaternion;
 
+  const rotated = multiplyQuaternions(
+    multiplyQuaternions(leftQuat, vectorQuat),
+    conjugateQuaternion(rightQuat)
+  );
+
+  return vec4.fromValues(rotated[1], rotated[2], rotated[3], rotated[0]);
+}
+
+type Quaternion = [number, number, number, number];
+
+function toWFirst(quaternion: Quaternion): Quaternion {
+  return [quaternion[3], quaternion[0], quaternion[1], quaternion[2]];
+}
+
+function normalizeQuaternion(quaternion: Quaternion): Quaternion {
+  const [w, x, y, z] = quaternion;
+  const mag = Math.hypot(w, x, y, z) || 1;
+  return [w / mag, x / mag, y / mag, z / mag];
+}
+
+function conjugateQuaternion(quaternion: Quaternion): Quaternion {
+  return [quaternion[0], -quaternion[1], -quaternion[2], -quaternion[3]];
+}
+
+function multiplyQuaternions(a: Quaternion, b: Quaternion): Quaternion {
+  const [aw, ax, ay, az] = a;
+  const [bw, bx, by, bz] = b;
   return [
-    sx * cy * cz + cx * sy * sz,
-    cx * sy * cz - sx * cy * sz,
-    cx * cy * sz + sx * sy * cz,
-    cx * cy * cz - sx * sy * sz
+    aw * bw - ax * bx - ay * by - az * bz,
+    aw * bx + ax * bw + ay * bz - az * by,
+    aw * by - ax * bz + ay * bw + az * bx,
+    aw * bz + ax * by - ay * bx + az * bw
   ];
+}
+
+export function rotationMatrixFromDualQuaternion(angles: RotationAngles): mat4 {
+  const basis = [
+    vec4.fromValues(1, 0, 0, 0),
+    vec4.fromValues(0, 1, 0, 0),
+    vec4.fromValues(0, 0, 1, 0),
+    vec4.fromValues(0, 0, 0, 1)
+  ];
+
+  const matrix = mat4.create();
+  for (let i = 0; i < 4; i++) {
+    const rotated = applyDualQuaternionRotation(basis[i], angles);
+    for (let row = 0; row < 4; row++) {
+      matrix[i * 4 + row] = rotated[row];
+    }
+  }
+
+  return matrix;
+}
+
+function vectorToQuaternion(vector: vec4): Quaternion {
+  return [vector[3], vector[0], vector[1], vector[2]];
+}
+
+function quaternionToVector(quaternion: Quaternion): [number, number, number, number] {
+  return [quaternion[1], quaternion[2], quaternion[3], quaternion[0]];
+}
+
+function quaternionFromRotationMatrix3(matrix: number[][]): Quaternion {
+  const m00 = matrix[0][0];
+  const m11 = matrix[1][1];
+  const m22 = matrix[2][2];
+  const trace = m00 + m11 + m22;
+
+  let w: number;
+  let x: number;
+  let y: number;
+  let z: number;
+
+  if (trace > 0) {
+    const s = Math.sqrt(trace + 1) * 2;
+    w = 0.25 * s;
+    x = (matrix[2][1] - matrix[1][2]) / s;
+    y = (matrix[0][2] - matrix[2][0]) / s;
+    z = (matrix[1][0] - matrix[0][1]) / s;
+  } else if (m00 > m11 && m00 > m22) {
+    const s = Math.sqrt(1 + m00 - m11 - m22) * 2;
+    w = (matrix[2][1] - matrix[1][2]) / s;
+    x = 0.25 * s;
+    y = (matrix[0][1] + matrix[1][0]) / s;
+    z = (matrix[0][2] + matrix[2][0]) / s;
+  } else if (m11 > m22) {
+    const s = Math.sqrt(1 + m11 - m00 - m22) * 2;
+    w = (matrix[0][2] - matrix[2][0]) / s;
+    x = (matrix[0][1] + matrix[1][0]) / s;
+    y = 0.25 * s;
+    z = (matrix[1][2] + matrix[2][1]) / s;
+  } else {
+    const s = Math.sqrt(1 + m22 - m00 - m11) * 2;
+    w = (matrix[1][0] - matrix[0][1]) / s;
+    x = (matrix[0][2] + matrix[2][0]) / s;
+    y = (matrix[1][2] + matrix[2][1]) / s;
+    z = 0.25 * s;
+  }
+
+  return normalizeQuaternion([w, x, y, z]);
 }

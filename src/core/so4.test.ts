@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import { vec4, mat4 } from 'gl-matrix';
-import { applySequentialRotations, rotationMatrixFromAngles } from './so4';
+import {
+  applySequentialRotations,
+  applyDualQuaternionRotation,
+  rotationMatrixFromAngles,
+  rotationMatrixFromDualQuaternion
+} from './so4';
 import type { RotationAngles } from './rotationUniforms';
 
 const ANGLES: RotationAngles = {
@@ -22,6 +27,43 @@ describe('SO(4) rotations', () => {
 
     for (let i = 0; i < 4; i++) {
       expect(sequential[i]).toBeCloseTo(matrixResult[i], 1e-5);
+    }
+  });
+
+  it('matches dual-quaternion rotation across randomized samples', () => {
+    const vectors = [
+      vec4.fromValues(0.3, -0.4, 0.2, 0.5),
+      vec4.fromValues(-0.8, 0.1, 0.65, -0.12),
+      vec4.fromValues(0.05, -0.9, 0.4, 0.3)
+    ];
+
+    for (let seed = 0; seed < 5; seed++) {
+      const angles: RotationAngles = {
+        xy: Math.sin(seed * 0.37) * 0.8,
+        xz: Math.cos(seed * 0.51) * 0.6,
+        yz: Math.sin(seed * 0.23 + 0.3) * 0.7,
+        xw: Math.cos(seed * 0.41 + 0.2) * 0.5,
+        yw: Math.sin(seed * 0.19 + 0.4) * 0.9,
+        zw: Math.cos(seed * 0.33 + 0.1) * 0.4
+      };
+
+      const dualMatrix = rotationMatrixFromDualQuaternion(angles);
+      const sequentialMatrix = rotationMatrixFromAngles(angles);
+
+      for (let row = 0; row < 4; row++) {
+        for (let col = 0; col < 4; col++) {
+          expect(dualMatrix[col * 4 + row]).toBeCloseTo(sequentialMatrix[col * 4 + row], 1e-5);
+        }
+      }
+
+      for (const vector of vectors) {
+        const sequential = applySequentialRotations(vector, angles);
+        const dualQuaternion = applyDualQuaternionRotation(vector, angles);
+
+        for (let i = 0; i < 4; i++) {
+          expect(dualQuaternion[i]).toBeCloseTo(sequential[i], 1e-5);
+        }
+      }
     }
   });
 
