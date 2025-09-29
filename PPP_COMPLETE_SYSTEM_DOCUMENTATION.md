@@ -1,5 +1,14 @@
 # PPP Complete System Documentation v4.0
 
+> **Implementation Status Update (2024)**
+> The production code for HypercubeCore, parserator, and the surrounding telemetry/export pipeline now lives in `src/` as TypeScript modules. When this document references conceptual components (e.g., `HypercubeCore.js`, `KerbelizedParserator.js`, `HOASBridge.js`), map them to the maintained files:
+> - Rendering & uniforms → `src/core/hypercubeCore.ts`, `src/core/rotationUniforms.ts`, `src/core/uberShaderBuilder.ts`
+> - Parserator & extruments → `src/ingestion/parserator.ts`, `src/ingestion/profiles.ts`, `src/ingestion/extrumentHub.ts`
+> - Pipeline & orchestration → `src/pipeline/haosBridge.ts`, `src/pipeline/contextScheduler.ts`, `src/pipeline/datasetExport.ts`, and companions
+> - Operator surface → `index.html`, `src/main.ts`
+>
+> Earlier sections remain valuable as conceptual framing, but the module names above represent the current system and should be used for development, testing, and documentation updates.
+
 ## Executive Overview: Polytopal Projection Processing Ecosystem
 
 The Polytopal Projection Processing (PPP) paradigm represents a fundamental breakthrough in computational architecture, transforming high-dimensional data processing from sequential bottlenecks to parallel geometric computation. This comprehensive documentation covers all aspects of the system from mathematical foundations through commercial applications.
