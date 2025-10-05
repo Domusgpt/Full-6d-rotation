@@ -1,8 +1,51 @@
 import { HypercubeCore } from './core/hypercubeCore';
-import { ZERO_ROTATION, type RotationAngles, type RotationSnapshot } from './core/rotationUniforms';
-import { createHarmonicOrbit, SIX_PLANE_KEYS } from './core/sixPlaneOrbit';
-import { getGeometry, type GeometryId } from './pipeline/geometryCatalog';
+import {
+  rotationEnergy,
+  ZERO_ROTATION,
+  type RotationAngles,
+  type RotationSnapshot
+} from './core/rotationUniforms';
+import {
+  createHarmonicOrbit,
+  SIX_PLANE_KEYS,
+  SIX_PLANE_METADATA
+} from './core/sixPlaneOrbit';
+import { type GeometryId } from './pipeline/geometryCatalog';
 import { RotationBus } from './pipeline/rotationBus';
+import { GeometryController } from './pipeline/geometryController';
+import { DatasetExportService } from './pipeline/datasetExport';
+import {
+  DatasetManifestBuilder,
+  DATASET_MANIFEST_STORAGE_KEY,
+  createManifestDownloadName,
+  type DatasetManifest
+} from './pipeline/datasetManifest';
+import { LocalPspStream } from './pipeline/pspStream';
+import { FocusDirector } from './pipeline/focusDirector';
+import { LatencyTracker } from './pipeline/latencyTracker';
+import {
+  ExtrumentHub,
+  normalizeSnapshot,
+  describeSnapshot,
+  type NormalizedSnapshot
+} from './ingestion/extrumentHub';
+import { discoverMidiAdapters } from './ingestion/midiExtrument';
+import {
+  Parserator,
+  gravityIsolation,
+  lowPassGyro,
+  featureWindow,
+  type PreprocessorRegistration,
+  type Preprocessor
+} from './ingestion/parserator';
+import { AVAILABLE_PROFILES, DEFAULT_PROFILE, getProfileById } from './ingestion/profiles';
+import { TelemetryLoom } from './pipeline/telemetryLoom';
+import {
+  ConfidenceTrend,
+  DATASET_CONFIDENCE_TREND_STORAGE_KEY,
+  type ConfidenceTrendAnnotation,
+  type ConfidenceTrendState
+} from './pipeline/confidenceTrend';
 
 const canvas = document.getElementById('gl-canvas') as HTMLCanvasElement;
 const statusEl = document.getElementById('status') as HTMLParagraphElement;
@@ -10,18 +53,244 @@ const geometrySelect = document.getElementById('geometry') as HTMLSelectElement;
 const projectionDepthSlider = document.getElementById('projectionDepth') as HTMLInputElement;
 const lineWidthSlider = document.getElementById('lineWidth') as HTMLInputElement;
 const rotationControlsContainer = document.getElementById('rotation-controls') as HTMLDivElement;
+const uniformUploadsEl = document.getElementById('uniform-uploads') as HTMLSpanElement;
+const uniformSkipsEl = document.getElementById('uniform-skips') as HTMLSpanElement;
+const datasetPendingEl = document.getElementById('dataset-pending') as HTMLSpanElement;
+const datasetTotalEl = document.getElementById('dataset-total') as HTMLSpanElement;
+const uniformLatencyEl = document.getElementById('uniform-latency') as HTMLSpanElement;
+const captureLatencyEl = document.getElementById('capture-latency') as HTMLSpanElement;
+const encodeLatencyEl = document.getElementById('encode-latency') as HTMLSpanElement;
+const datasetFormatEl = document.getElementById('dataset-format') as HTMLSpanElement;
+const manifestFramesEl = document.getElementById('manifest-frames') as HTMLSpanElement;
+const manifestP95El = document.getElementById('manifest-p95') as HTMLSpanElement;
+const manifestConfidenceEl = document.getElementById('manifest-confidence') as HTMLSpanElement;
+const manifestUpdatedEl = document.getElementById('manifest-updated') as HTMLSpanElement;
+const manifestConfidenceTrendCanvas = document.getElementById('manifest-confidence-trend') as HTMLCanvasElement;
+const manifestDownloadButton = document.getElementById('manifest-download') as HTMLButtonElement;
+const parseratorProfileNameEl = document.getElementById('parserator-profile-name') as HTMLSpanElement;
+const parseratorProfileSelect = document.getElementById('parserator-profile-select') as HTMLSelectElement;
+const parseratorConfidenceValueEl = document.getElementById('parserator-confidence-value') as HTMLSpanElement;
+const parseratorConfidenceInput = document.getElementById('parserator-confidence-input') as HTMLInputElement;
+const parseratorPreprocessorsEl = document.getElementById('parserator-preprocessors') as HTMLSpanElement;
+const parseratorPreprocessorContainer = document.getElementById('parserator-preprocessor-controls') as HTMLDivElement;
+const extrumentStatusEl = document.getElementById('extrument-status') as HTMLSpanElement;
+const extrumentOutputEl = document.getElementById('extrument-output') as HTMLSpanElement;
+const extrumentPayloadEl = document.getElementById('extrument-payload') as HTMLSpanElement;
+const extrumentConnectButton = document.getElementById('extrument-connect') as HTMLButtonElement;
+const telemetryCountEl = document.getElementById('telemetry-count') as HTMLSpanElement;
+const telemetryEventsEl = document.getElementById('telemetry-events') as HTMLUListElement;
 
-if (!canvas || !statusEl || !geometrySelect || !projectionDepthSlider || !lineWidthSlider || !rotationControlsContainer) {
+if (
+  !canvas ||
+  !statusEl ||
+  !geometrySelect ||
+  !projectionDepthSlider ||
+  !lineWidthSlider ||
+  !rotationControlsContainer ||
+  !uniformUploadsEl ||
+  !uniformSkipsEl ||
+  !datasetPendingEl ||
+  !datasetTotalEl ||
+  !uniformLatencyEl ||
+  !captureLatencyEl ||
+  !encodeLatencyEl ||
+  !datasetFormatEl ||
+  !manifestFramesEl ||
+  !manifestP95El ||
+  !manifestDownloadButton ||
+  !manifestConfidenceEl ||
+  !manifestUpdatedEl ||
+  !manifestConfidenceTrendCanvas ||
+  !parseratorProfileNameEl ||
+  !parseratorProfileSelect ||
+  !parseratorConfidenceValueEl ||
+  !parseratorConfidenceInput ||
+  !parseratorPreprocessorsEl ||
+  !parseratorPreprocessorContainer ||
+  !extrumentStatusEl ||
+  !extrumentOutputEl ||
+  !extrumentPayloadEl ||
+  !extrumentConnectButton ||
+  !telemetryCountEl ||
+  !telemetryEventsEl
+) {
   throw new Error('Required DOM nodes are missing');
 }
+
+const manifestConfidenceTrendCtx = (() => {
+  const context = manifestConfidenceTrendCanvas.getContext('2d');
+  if (!context) {
+    throw new Error('Unable to create manifest confidence trend context');
+  }
+  return context;
+})();
 
 const core = new HypercubeCore(canvas, {
   projectionDepth: Number(projectionDepthSlider.value),
   lineWidth: Number(lineWidthSlider.value)
 });
 
+const geometryController = new GeometryController(core);
 const rotationBus = new RotationBus();
 rotationBus.subscribe(snapshot => core.updateRotation(snapshot));
+const latencyTracker = new LatencyTracker();
+const datasetExport = new DatasetExportService({
+  onLatencySample: latency => latencyTracker.recordEncode(latency)
+});
+
+let persistedManifest: DatasetManifest | undefined;
+try {
+  if (typeof localStorage !== 'undefined') {
+    const raw = localStorage.getItem(DATASET_MANIFEST_STORAGE_KEY);
+    if (raw) {
+      persistedManifest = JSON.parse(raw) as DatasetManifest;
+    }
+  }
+} catch (error) {
+  console.warn('Failed to load dataset manifest', error);
+}
+
+let persistedTrendState: ConfidenceTrendState | undefined = persistedManifest?.confidenceTrend;
+try {
+  if (typeof localStorage !== 'undefined') {
+    const rawTrend = localStorage.getItem(DATASET_CONFIDENCE_TREND_STORAGE_KEY);
+    if (rawTrend) {
+      persistedTrendState = JSON.parse(rawTrend) as ConfidenceTrendState;
+    }
+  }
+} catch (error) {
+  console.warn('Failed to load confidence trend', error);
+}
+
+const manifestBuilder = new DatasetManifestBuilder({ hydrateFrom: persistedManifest });
+const pspStream = new LocalPspStream();
+const focusDirector = new FocusDirector(geometryController, rotationBus, { fallbackGeometry: 'tesseract' });
+const MAX_PENDING_FRAMES = 48;
+const CONFIDENCE_TREND_POINTS = 60;
+
+const confidenceTrend = new ConfidenceTrend({
+  maxPoints: CONFIDENCE_TREND_POINTS,
+  state: persistedTrendState
+});
+let lastManifestUpdateSample = confidenceTrend.getUpdatedAt() ?? 0;
+
+const extrumentHub = new ExtrumentHub<NormalizedSnapshot>({
+  transform: normalizeSnapshot,
+  onError: (error, adapter) => {
+    console.warn('Extrument adapter error', error);
+    extrumentStatusEl.textContent = `Error · ${adapter.id}`;
+    extrumentConnected = false;
+    extrumentConnectButton.disabled = false;
+  }
+});
+const extrumentAdapterLabels = new Map<string, string>();
+let extrumentConnected = false;
+const extrumentDisconnectors: Array<() => void> = [];
+
+const parserator = new Parserator();
+const telemetryLoom = new TelemetryLoom(180);
+if (persistedManifest?.telemetry) {
+  telemetryLoom.hydrate(persistedManifest.telemetry);
+}
+const TELEMETRY_DISPLAY_LIMIT = 24;
+
+type PreprocessorOption = {
+  id: string;
+  label: string;
+  description: string;
+  factory: () => Preprocessor;
+};
+
+const PREPROCESSOR_OPTIONS: PreprocessorOption[] = [
+  {
+    id: 'low-pass',
+    label: 'Low-pass gyro',
+    description: 'Smooths gyro spikes with an adaptive exponential filter.',
+    factory: () => lowPassGyro(6)
+  },
+  {
+    id: 'gravity',
+    label: 'Gravity isolation',
+    description: 'Normalises acceleration vectors to isolate orientation cues.',
+    factory: () => gravityIsolation(0.85)
+  },
+  {
+    id: 'feature-window',
+    label: 'Feature window',
+    description: 'Averages the last eight samples to reduce jitter before mapping.',
+    factory: () => featureWindow(8)
+  }
+];
+
+const preprocessorHandles = new Map<string, PreprocessorRegistration>();
+const preprocessorCheckboxes = new Map<string, HTMLInputElement>();
+const preprocessorLookup = new Map(PREPROCESSOR_OPTIONS.map(option => [option.id, option]));
+
+rotationBus.subscribe(snapshot => {
+  const normalized = normalizeSnapshot(snapshot);
+  lastExtrumentSummary = describeSnapshot(normalized);
+  extrumentPayloadEl.textContent = lastExtrumentSummary;
+  void extrumentHub.broadcastPayload(normalized);
+});
+
+populateParseratorProfiles();
+renderParseratorPreprocessors();
+renderTelemetry();
+
+const hydratedIngestion = persistedManifest?.ingestion;
+if (hydratedIngestion) {
+  const profile = getProfileById(hydratedIngestion.profileId) ?? DEFAULT_PROFILE;
+  parserator.setProfile(profile);
+  parserator.setConfidenceFloor(hydratedIngestion.confidenceFloor);
+  for (const id of hydratedIngestion.preprocessors) {
+    const option = preprocessorLookup.get(id);
+    if (option) {
+      setPreprocessorState(option, true, false);
+    }
+  }
+  logParseratorEvent('Hydrated parserator config', {
+    profile: profile.name,
+    profileId: profile.id,
+    confidence: parserator.getConfidenceFloor(),
+    preprocessors: hydratedIngestion.preprocessors.map(
+      value => preprocessorLookup.get(value)?.label ?? value
+    )
+  });
+} else {
+  parserator.setProfile(DEFAULT_PROFILE);
+  logParseratorEvent('Parserator initialised', {
+    profile: DEFAULT_PROFILE.name,
+    profileId: DEFAULT_PROFILE.id,
+    confidence: parserator.getConfidenceFloor(),
+    preprocessors: []
+  });
+}
+
+parseratorProfileSelect.addEventListener('change', event => {
+  const target = event.target as HTMLSelectElement;
+  const profile = getProfileById(target.value) ?? DEFAULT_PROFILE;
+  parserator.setProfile(profile);
+  updateParseratorTelemetry();
+  persistIngestionConfig();
+  logParseratorEvent('Profile selected', {
+    profile: profile.name,
+    profileId: profile.id
+  });
+});
+
+parseratorConfidenceInput.addEventListener('input', () => {
+  setConfidenceFloor(Number(parseratorConfidenceInput.value), false);
+});
+
+parseratorConfidenceInput.addEventListener('change', () => {
+  setConfidenceFloor(Number(parseratorConfidenceInput.value), true);
+});
+
+updateParseratorTelemetry();
+
+if (!hydratedIngestion) {
+  persistIngestionConfig();
+}
 
 const rotationState: RotationSnapshot = {
   ...ZERO_ROTATION,
@@ -33,21 +302,542 @@ const manualOffsets: RotationAngles = { ...ZERO_ROTATION };
 const autoAngles: RotationAngles = { ...ZERO_ROTATION };
 
 let updateRotationLabels: (combined: RotationAngles, manual: RotationAngles) => void;
+let lastExtrumentSummary = '–';
 
 function pushRotationSnapshot(timestamp: number) {
   rotationState.timestamp = timestamp;
 
-  let energy = 0;
   for (const plane of SIX_PLANE_KEYS) {
     rotationState[plane] = autoAngles[plane] + manualOffsets[plane];
-    energy += Math.abs(rotationState[plane]);
   }
+
+  const energy = rotationEnergy(rotationState);
 
   const normalized = Math.min(1, energy / (Math.PI * SIX_PLANE_KEYS.length));
   rotationState.confidence = 0.75 + 0.25 * (1 - normalized);
 
   rotationBus.push({ ...rotationState });
   updateRotationLabels(rotationState, manualOffsets);
+  updateTelemetry();
+}
+
+function formatLatency(avg: number, max: number) {
+  if (avg <= 0 && max <= 0) {
+    return '0 ms';
+  }
+  return `${avg.toFixed(1)} ms (max ${max.toFixed(1)})`;
+}
+
+function updateManifestTelemetry() {
+  manifestBuilder.updateConfidenceTrend(confidenceTrend.toJSON());
+  const manifest = manifestBuilder.getManifest();
+  manifestFramesEl.textContent = manifest.stats.totalFrames.toString();
+  manifestP95El.textContent =
+    manifest.stats.totalFrames && manifest.stats.p95TotalLatencyMs
+      ? `${manifest.stats.p95TotalLatencyMs.toFixed(1)} ms`
+      : '–';
+  manifestDownloadButton.disabled = manifest.stats.totalFrames === 0;
+
+  const lastUpdated = manifest.stats.lastUpdated || 0;
+  manifestUpdatedEl.textContent = lastUpdated ? formatUpdatedTimestamp(lastUpdated) : '–';
+
+  const histogram = manifest.stats.confidenceHistogram;
+  let ratio: number | null = null;
+  let highConfidence = 0;
+  if (histogram) {
+    const bucketSize = histogram.bucketSize || 0.1;
+    const thresholdIndex = Math.min(
+      histogram.counts.length - 1,
+      Math.max(0, Math.ceil(0.9 / bucketSize) - 1)
+    );
+    highConfidence = histogram.counts
+      .slice(thresholdIndex)
+      .reduce((sum, value) => sum + value, 0);
+    if (histogram.totalSamples > 0) {
+      ratio = highConfidence / histogram.totalSamples;
+    } else if (manifest.stats.totalFrames > 0) {
+      ratio = 0;
+    }
+  }
+
+  if (ratio !== null) {
+    const percentage = Math.round(ratio * 100);
+    manifestConfidenceEl.textContent = `${percentage}% · ${highConfidence}`;
+  } else {
+    manifestConfidenceEl.textContent = '–';
+  }
+
+  const isNewSample = lastUpdated > 0 && lastUpdated !== lastManifestUpdateSample;
+  let trendChanged = false;
+
+  if (manifest.stats.totalFrames === 0) {
+    if (!confidenceTrend.isEmpty()) {
+      confidenceTrend.clear();
+      trendChanged = true;
+    }
+  } else if (isNewSample && ratio !== null) {
+    confidenceTrend.record(ratio, lastUpdated, createParseratorTrendAnnotation());
+    trendChanged = true;
+  }
+
+  renderConfidenceTrend();
+
+  if (trendChanged) {
+    persistConfidenceTrend();
+  }
+
+  if (isNewSample) {
+    lastManifestUpdateSample = lastUpdated;
+  }
+}
+
+function persistManifest() {
+  try {
+    manifestBuilder.updateConfidenceTrend(confidenceTrend.toJSON());
+    manifestBuilder.updateTelemetry(telemetryLoom.snapshot());
+    if (typeof localStorage === 'undefined') {
+      return;
+    }
+    const manifest = manifestBuilder.getManifest();
+    localStorage.setItem(DATASET_MANIFEST_STORAGE_KEY, JSON.stringify(manifest));
+    persistConfidenceTrend();
+  } catch (error) {
+    console.warn('Failed to persist dataset manifest', error);
+  }
+}
+
+function persistConfidenceTrend() {
+  try {
+    if (typeof localStorage === 'undefined') {
+      return;
+    }
+    const payload = confidenceTrend.toJSON();
+    if (!payload.samples || payload.samples.length === 0) {
+      localStorage.removeItem(DATASET_CONFIDENCE_TREND_STORAGE_KEY);
+      return;
+    }
+    localStorage.setItem(DATASET_CONFIDENCE_TREND_STORAGE_KEY, JSON.stringify(payload));
+  } catch (error) {
+    console.warn('Failed to persist confidence trend', error);
+  }
+}
+
+function renderConfidenceTrend() {
+  const width = manifestConfidenceTrendCanvas.clientWidth;
+  const height = manifestConfidenceTrendCanvas.clientHeight;
+  if (width === 0 || height === 0) {
+    return;
+  }
+
+  const dpr = window.devicePixelRatio || 1;
+  const actualWidth = Math.max(1, Math.round(width * dpr));
+  const actualHeight = Math.max(1, Math.round(height * dpr));
+  if (
+    manifestConfidenceTrendCanvas.width !== actualWidth ||
+    manifestConfidenceTrendCanvas.height !== actualHeight
+  ) {
+    manifestConfidenceTrendCanvas.width = actualWidth;
+    manifestConfidenceTrendCanvas.height = actualHeight;
+  }
+
+  manifestConfidenceTrendCtx.setTransform(1, 0, 0, 1, 0, 0);
+  manifestConfidenceTrendCtx.clearRect(0, 0, actualWidth, actualHeight);
+  manifestConfidenceTrendCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+  manifestConfidenceTrendCtx.fillStyle = 'rgba(12, 18, 32, 0.35)';
+  manifestConfidenceTrendCtx.fillRect(0, 0, width, height);
+
+  // Reference line at 90% confidence
+  manifestConfidenceTrendCtx.strokeStyle = 'rgba(127, 210, 255, 0.25)';
+  manifestConfidenceTrendCtx.lineWidth = 1;
+  const ninetyLine = height - height * 0.9;
+  manifestConfidenceTrendCtx.beginPath();
+  manifestConfidenceTrendCtx.moveTo(0, ninetyLine);
+  manifestConfidenceTrendCtx.lineTo(width, ninetyLine);
+  manifestConfidenceTrendCtx.stroke();
+
+  const values = confidenceTrend.getValues();
+  if (!values.length) {
+    manifestConfidenceTrendCtx.fillStyle = 'rgba(211, 246, 255, 0.6)';
+    manifestConfidenceTrendCtx.font =
+      '10px "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace';
+    manifestConfidenceTrendCtx.textBaseline = 'middle';
+    manifestConfidenceTrendCtx.fillText('No samples', 8, height / 2);
+    return;
+  }
+
+  const step = values.length > 1 ? width / (values.length - 1) : width;
+  const points = values.map((ratio, index) => ({
+    x: values.length === 1 ? width : index * step,
+    y: height - ratio * height
+  }));
+
+  manifestConfidenceTrendCtx.lineWidth = 1.5;
+  manifestConfidenceTrendCtx.strokeStyle = 'rgba(127, 210, 255, 0.9)';
+  manifestConfidenceTrendCtx.beginPath();
+  if (points.length === 1) {
+    const point = points[0];
+    manifestConfidenceTrendCtx.moveTo(0, point.y);
+    manifestConfidenceTrendCtx.lineTo(point.x, point.y);
+  } else {
+    manifestConfidenceTrendCtx.moveTo(points[0].x, points[0].y);
+    for (let i = 1; i < points.length; i++) {
+      manifestConfidenceTrendCtx.lineTo(points[i].x, points[i].y);
+    }
+  }
+  manifestConfidenceTrendCtx.stroke();
+
+  manifestConfidenceTrendCtx.fillStyle = 'rgba(127, 210, 255, 0.22)';
+  manifestConfidenceTrendCtx.beginPath();
+  manifestConfidenceTrendCtx.moveTo(0, height);
+  if (points.length === 1) {
+    const point = points[0];
+    manifestConfidenceTrendCtx.lineTo(0, point.y);
+    manifestConfidenceTrendCtx.lineTo(point.x, point.y);
+  } else {
+    manifestConfidenceTrendCtx.lineTo(points[0].x, points[0].y);
+    for (let i = 1; i < points.length; i++) {
+      manifestConfidenceTrendCtx.lineTo(points[i].x, points[i].y);
+    }
+  }
+  manifestConfidenceTrendCtx.lineTo(width, height);
+  manifestConfidenceTrendCtx.closePath();
+  manifestConfidenceTrendCtx.fill();
+
+  const latest = points[points.length - 1];
+  manifestConfidenceTrendCtx.fillStyle = 'rgba(127, 210, 255, 0.85)';
+  manifestConfidenceTrendCtx.beginPath();
+  manifestConfidenceTrendCtx.arc(latest.x, latest.y, 3, 0, Math.PI * 2);
+  manifestConfidenceTrendCtx.fill();
+}
+
+function formatUpdatedTimestamp(timestamp: number): string {
+  const formattedTime = new Date(timestamp).toLocaleTimeString([], {
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit'
+  });
+  return `${formattedTime} · ${formatRelativeTime(timestamp)}`;
+}
+
+function formatRelativeTime(timestamp: number): string {
+  const now = Date.now();
+  const diff = now - timestamp;
+  if (!Number.isFinite(diff) || diff < 0) {
+    return 'just now';
+  }
+  if (diff < 5_000) {
+    return 'just now';
+  }
+  const seconds = Math.floor(diff / 1_000);
+  if (seconds < 60) {
+    return `${seconds}s ago`;
+  }
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) {
+    const rem = seconds % 60;
+    return rem ? `${minutes}m ${rem}s ago` : `${minutes}m ago`;
+  }
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) {
+    const rem = minutes % 60;
+    return rem ? `${hours}h ${rem}m ago` : `${hours}h ago`;
+  }
+  const days = Math.floor(hours / 24);
+  const remHours = hours % 24;
+  return remHours ? `${days}d ${remHours}h ago` : `${days}d ago`;
+}
+
+function logParseratorEvent(message: string, metadata?: Record<string, unknown>) {
+  telemetryLoom.record({ category: 'parserator', message, metadata });
+  renderTelemetry();
+  persistManifest();
+}
+
+function renderTelemetry() {
+  const events = telemetryLoom.list();
+  telemetryCountEl.textContent = `${events.length} events`;
+  telemetryEventsEl.innerHTML = '';
+
+  const recent = events.slice(-TELEMETRY_DISPLAY_LIMIT).reverse();
+  for (const event of recent) {
+    const item = document.createElement('li');
+    item.dataset.category = event.category;
+
+    const textWrapper = document.createElement('div');
+    textWrapper.className = 'telemetry-text';
+
+    const message = document.createElement('span');
+    message.className = 'telemetry-message';
+    message.textContent = event.message;
+    textWrapper.appendChild(message);
+
+    if (event.metadata && Object.keys(event.metadata).length) {
+      const metadata = document.createElement('span');
+      metadata.className = 'telemetry-metadata';
+      metadata.textContent = formatTelemetryMetadata(event.metadata);
+      textWrapper.appendChild(metadata);
+    }
+
+    const timestamp = document.createElement('time');
+    timestamp.className = 'telemetry-timestamp';
+    timestamp.dateTime = new Date(event.timestamp).toISOString();
+    timestamp.textContent = formatEventTimestamp(event.timestamp);
+
+    item.appendChild(textWrapper);
+    item.appendChild(timestamp);
+    telemetryEventsEl.appendChild(item);
+  }
+
+  if (!recent.length) {
+    const empty = document.createElement('li');
+    empty.className = 'telemetry-empty';
+    empty.textContent = 'No parserator events yet';
+    telemetryEventsEl.appendChild(empty);
+  }
+}
+
+function formatTelemetryMetadata(metadata: Record<string, unknown>): string {
+  return Object.entries(metadata)
+    .map(([key, value]) => `${key}: ${formatMetadataValue(value)}`)
+    .join(' · ');
+}
+
+function formatMetadataValue(value: unknown): string {
+  if (Array.isArray(value)) {
+    return value.length ? value.join(', ') : 'none';
+  }
+  if (typeof value === 'number') {
+    if (value >= 0 && value <= 1) {
+      return value.toFixed(2);
+    }
+    return Number.isInteger(value) ? value.toString() : value.toFixed(2);
+  }
+  if (typeof value === 'boolean') {
+    return value ? 'true' : 'false';
+  }
+  return String(value);
+}
+
+function formatEventTimestamp(timestamp: number): string {
+  const date = new Date(timestamp);
+  return date.toLocaleTimeString([], { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' });
+}
+
+function populateParseratorProfiles() {
+  parseratorProfileSelect.innerHTML = '';
+  for (const profile of AVAILABLE_PROFILES) {
+    const option = document.createElement('option');
+    option.value = profile.id;
+    option.textContent = profile.name;
+    parseratorProfileSelect.appendChild(option);
+  }
+}
+
+function renderParseratorPreprocessors() {
+  parseratorPreprocessorContainer.innerHTML = '';
+  preprocessorCheckboxes.clear();
+
+  for (const option of PREPROCESSOR_OPTIONS) {
+    const label = document.createElement('label');
+    label.className = 'parserator-toggle';
+
+    const checkbox = document.createElement('input');
+    checkbox.type = 'checkbox';
+    checkbox.value = option.id;
+    checkbox.addEventListener('change', () => {
+      setPreprocessorState(option, checkbox.checked);
+    });
+
+    const textContainer = document.createElement('div');
+    const title = document.createElement('span');
+    title.textContent = option.label;
+    const hint = document.createElement('small');
+    hint.textContent = option.description;
+    textContainer.appendChild(title);
+    textContainer.appendChild(hint);
+
+    label.appendChild(checkbox);
+    label.appendChild(textContainer);
+    parseratorPreprocessorContainer.appendChild(label);
+    preprocessorCheckboxes.set(option.id, checkbox);
+  }
+}
+
+function setPreprocessorState(option: PreprocessorOption, enabled: boolean, persist = true) {
+  const current = preprocessorHandles.get(option.id);
+  if (enabled && !current) {
+    const registration = parserator.registerPreprocessor(option.factory(), { id: option.id });
+    preprocessorHandles.set(option.id, registration);
+  } else if (!enabled && current) {
+    current.dispose();
+    preprocessorHandles.delete(option.id);
+  }
+
+  updateParseratorTelemetry();
+
+  if (persist) {
+    logParseratorEvent(`${enabled ? 'Enabled' : 'Disabled'} ${option.label}`, {
+      preprocessorId: option.id,
+      enabled
+    });
+    persistIngestionConfig();
+  }
+}
+
+function setConfidenceFloor(value: number, persist = true) {
+  const clamped = Math.min(1, Math.max(0, Number.isFinite(value) ? value : parserator.getConfidenceFloor()));
+  parserator.setConfidenceFloor(clamped);
+  updateParseratorTelemetry();
+  if (persist) {
+    logParseratorEvent('Confidence floor updated', { confidence: clamped });
+    persistIngestionConfig();
+  }
+}
+
+function persistIngestionConfig() {
+  const profile = parserator.getProfile();
+  manifestBuilder.updateIngestionConfig({
+    profileId: profile.id,
+    profileName: profile.name,
+    confidenceFloor: parserator.getConfidenceFloor(),
+    preprocessors: parserator.listPreprocessors()
+  });
+  persistManifest();
+}
+
+function createParseratorTrendAnnotation(): ConfidenceTrendAnnotation {
+  const profile = parserator.getProfile();
+  return {
+    profileId: profile.id,
+    profileName: profile.name,
+    confidenceFloor: parserator.getConfidenceFloor(),
+    preprocessors: parserator.listPreprocessors()
+  };
+}
+
+function updateParseratorTelemetry() {
+  const profile = parserator.getProfile();
+  parseratorProfileNameEl.textContent = profile.name;
+  parseratorProfileSelect.value = profile.id;
+
+  const confidence = parserator.getConfidenceFloor();
+  parseratorConfidenceValueEl.textContent = confidence.toFixed(2);
+  parseratorConfidenceInput.value = confidence.toFixed(2);
+
+  const activeIds = parserator.listPreprocessors();
+  if (!activeIds.length) {
+    parseratorPreprocessorsEl.textContent = '–';
+  } else {
+    parseratorPreprocessorsEl.textContent = activeIds
+      .map(id => preprocessorLookup.get(id)?.label ?? id)
+      .join(', ');
+  }
+
+  for (const [id, checkbox] of preprocessorCheckboxes) {
+    checkbox.checked = preprocessorHandles.has(id);
+  }
+}
+
+function updateTelemetry() {
+  const uniformMetrics = core.getUniformMetrics();
+  uniformUploadsEl.textContent = `${uniformMetrics.uploads}/${uniformMetrics.enqueued}`;
+  uniformSkipsEl.textContent = uniformMetrics.skipped.toString();
+  latencyTracker.recordUniform(uniformMetrics);
+
+  const pipelineLatency = latencyTracker.getMetrics();
+  uniformLatencyEl.textContent = formatLatency(pipelineLatency.uniformAvgMs, pipelineLatency.uniformMaxMs);
+  captureLatencyEl.textContent = formatLatency(pipelineLatency.captureAvgMs, pipelineLatency.captureMaxMs);
+  encodeLatencyEl.textContent = formatLatency(pipelineLatency.encodeAvgMs, pipelineLatency.encodeMaxMs);
+
+  const datasetMetrics = datasetExport.getMetrics();
+  datasetPendingEl.textContent = datasetMetrics.pending.toString();
+  datasetTotalEl.textContent = datasetMetrics.totalEncoded.toString();
+  datasetFormatEl.textContent = datasetMetrics.lastFormat ?? '–';
+  updateManifestTelemetry();
+}
+
+async function connectExtruments() {
+  if (extrumentConnected) {
+    updateExtrumentStatus();
+    return;
+  }
+
+  extrumentConnectButton.disabled = true;
+  extrumentStatusEl.textContent = 'Scanning MIDI…';
+
+  try {
+    const navigatorWithMidi = navigator as Navigator & { requestMIDIAccess?: () => Promise<any> };
+    if (!navigatorWithMidi.requestMIDIAccess) {
+      extrumentStatusEl.textContent = 'WebMIDI unavailable';
+      extrumentConnectButton.disabled = false;
+      return;
+    }
+
+    const adapters = await discoverMidiAdapters({
+      accessFactory: async () => {
+        const access = await navigatorWithMidi.requestMIDIAccess!();
+        return {
+          outputs: Array.from(access.outputs.values()).map(output => ({
+            id: output.id,
+            name: output.name ?? undefined,
+            send: (message?: number[] | Uint8Array, timestamp?: number) => {
+              const payload = message ?? [];
+              output.send(payload, timestamp);
+            }
+          }))
+        };
+      }
+    });
+
+    if (!adapters.length) {
+      extrumentStatusEl.textContent = 'No MIDI outputs found';
+      extrumentConnectButton.disabled = false;
+      return;
+    }
+
+    extrumentDisconnectors.forEach(dispose => dispose());
+    extrumentDisconnectors.length = 0;
+
+    for (const adapter of adapters) {
+      extrumentAdapterLabels.set(adapter.id, adapter.label ?? adapter.id);
+      const dispose = extrumentHub.register(adapter);
+      extrumentDisconnectors.push(dispose);
+      await extrumentHub.connect(adapter.id);
+    }
+
+    extrumentConnected = true;
+    extrumentStatusEl.textContent = `Connected · ${adapters.length}`;
+    extrumentConnectButton.textContent = 'MIDI Connected';
+    extrumentConnectButton.disabled = true;
+    updateExtrumentStatus();
+    extrumentPayloadEl.textContent = lastExtrumentSummary;
+  } catch (error) {
+    console.error('Failed to connect extruments', error);
+    extrumentStatusEl.textContent = 'Connection failed';
+    extrumentConnectButton.disabled = false;
+  }
+}
+
+function updateExtrumentStatus() {
+  const states = extrumentHub.listAdapters();
+  if (!states.length) {
+    extrumentStatusEl.textContent = extrumentConnected ? 'Connected' : 'Idle';
+    if (!extrumentConnected) {
+      extrumentOutputEl.textContent = '–';
+    }
+    return;
+  }
+  const connected = states.filter(state => state.connected);
+  if (connected.length) {
+    extrumentStatusEl.textContent = `Connected · ${connected.length}`;
+  } else {
+    extrumentStatusEl.textContent = 'Ready';
+  }
+  const labels = states
+    .map(state => extrumentAdapterLabels.get(state.id) ?? state.id.replace(/^midi:/, ''))
+    .join(', ');
+  extrumentOutputEl.textContent = labels || '–';
 }
 
 updateRotationLabels = createRotationControls(rotationControlsContainer, manualOffsets, () => {
@@ -56,12 +846,41 @@ updateRotationLabels = createRotationControls(rotationControlsContainer, manualO
 
 pushRotationSnapshot(performance.now());
 
+extrumentConnectButton.addEventListener('click', () => {
+  void connectExtruments();
+});
+
+manifestDownloadButton.addEventListener('click', downloadManifest);
+
+updateExtrumentStatus();
+updateManifestTelemetry();
+renderConfidenceTrend();
+
+window.addEventListener('beforeunload', () => {
+  extrumentDisconnectors.forEach(dispose => dispose());
+});
+
+window.addEventListener('resize', () => {
+  renderConfidenceTrend();
+});
+
+function populateGeometryOptions() {
+  const geometries = geometryController.getAvailableGeometries();
+  geometrySelect.innerHTML = '';
+  for (const descriptor of geometries) {
+    const option = document.createElement('option');
+    option.value = descriptor.id;
+    option.textContent = descriptor.name;
+    geometrySelect.appendChild(option);
+  }
+}
+
 function setGeometry(id: GeometryId) {
-  const geometry = getGeometry(id);
-  core.setGeometry(geometry);
-  const vertexCount = (geometry.positions.length / 4).toFixed(0);
-  const edgeCount = (geometry.indices.length / 2).toFixed(0);
-  statusEl.textContent = `Geometry: ${id} · vertices ${vertexCount} · edges ${edgeCount}`;
+  geometryController.setActiveGeometry(id);
+  const descriptor = geometryController.getDescriptor(id);
+  if (!descriptor) return;
+  const { topology } = descriptor.data;
+  statusEl.textContent = `Geometry: ${descriptor.name} · V ${topology.vertices} · E ${topology.edges} · F ${topology.faces} · C ${topology.cells}`;
 }
 
 geometrySelect.addEventListener('change', (event) => {
@@ -79,9 +898,84 @@ lineWidthSlider.addEventListener('input', (event) => {
   core.setLineWidth(value);
 });
 
+populateGeometryOptions();
+geometrySelect.value = 'tesseract';
 setGeometry('tesseract');
+core.setUniformUploadListener((snapshot, metrics) => {
+  latencyTracker.recordUniform(metrics);
+  const datasetMetrics = datasetExport.getMetrics();
+  if (datasetMetrics.pending >= MAX_PENDING_FRAMES) {
+    return;
+  }
+
+  const frame = core.captureFrame();
+  if (frame.width === 0 || frame.height === 0) {
+    return;
+  }
+
+  const captureTime = performance.now();
+  const captureLatency = Math.max(0, captureTime - snapshot.timestamp);
+  latencyTracker.recordCapture(snapshot.timestamp, captureTime);
+
+  let uniformLatency = metrics.lastUploadLatency;
+  if (metrics.lastSnapshotTimestamp !== snapshot.timestamp) {
+    uniformLatency = Math.max(0, metrics.lastUploadTime - snapshot.timestamp);
+  }
+
+  datasetExport.enqueue({
+    width: frame.width,
+    height: frame.height,
+    pixels: frame.pixels,
+    metadata: {
+      timestamp: snapshot.timestamp,
+      rotationAngles: [snapshot.xy, snapshot.xz, snapshot.yz, snapshot.xw, snapshot.yw, snapshot.zw],
+      confidence: snapshot.confidence,
+      latency: {
+        uniformMs: uniformLatency,
+        uniformTimestamp: metrics.lastUploadTime,
+        captureMs: captureLatency,
+        captureTimestamp: captureTime
+      }
+    }
+  });
+  updateTelemetry();
+});
+
 startSyntheticRotation(autoAngles, timestamp => pushRotationSnapshot(timestamp));
 core.start();
+
+setInterval(() => focusDirector.update(performance.now()), 1000);
+
+setInterval(async () => {
+  const frames = await datasetExport.flush();
+  if (frames.length) {
+    const metrics = datasetExport.getMetrics();
+    const format = metrics.lastFormat ?? 'image/png';
+    frames.forEach(frame => {
+      manifestBuilder.addFrame(frame.metadata, format);
+      pspStream.publish(frame);
+    });
+    persistManifest();
+    updateTelemetry();
+  }
+}, 2000);
+
+function downloadManifest() {
+  persistManifest();
+  const manifest = manifestBuilder.getManifest();
+  const contents = JSON.stringify(manifest, null, 2);
+  const blob = new Blob([contents], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement('a');
+  anchor.href = url;
+  anchor.download = createManifestDownloadName(manifest);
+  anchor.style.display = 'none';
+  const host = document.body ?? document.documentElement;
+  host?.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 0);
+}
 
 function createRotationControls(
   container: HTMLDivElement,
@@ -91,12 +985,15 @@ function createRotationControls(
   const valueLabels = new Map<keyof RotationAngles, HTMLSpanElement>();
 
   for (const key of SIX_PLANE_KEYS) {
+    const metadata = SIX_PLANE_METADATA[key];
     const group = document.createElement('section');
-    group.className = 'control-group';
+    group.className = 'control-group rotation-plane-group';
+    group.dataset.plane = key;
 
     const title = document.createElement('label');
-    title.textContent = `${key.toUpperCase()} Plane`;
+    title.textContent = metadata?.label ?? `${key.toUpperCase()} Plane`;
     title.htmlFor = `rotation-${key}`;
+    group.appendChild(title);
 
     const slider = document.createElement('input');
     slider.type = 'range';
@@ -105,6 +1002,18 @@ function createRotationControls(
     slider.step = '0.01';
     slider.value = manualState[key].toString();
     slider.id = `rotation-${key}`;
+    if (metadata) {
+      slider.setAttribute('aria-describedby', `rotation-desc-${key}`);
+      slider.title = metadata.summary;
+    }
+
+    if (metadata) {
+      const description = document.createElement('p');
+      description.className = 'control-hint';
+      description.id = `rotation-desc-${key}`;
+      description.textContent = metadata.summary;
+      group.appendChild(description);
+    }
 
     const valueLabel = document.createElement('span');
     valueLabel.style.fontSize = '0.8rem';
@@ -116,7 +1025,6 @@ function createRotationControls(
       onChange();
     });
 
-    group.appendChild(title);
     group.appendChild(slider);
     group.appendChild(valueLabel);
     container.appendChild(group);
@@ -149,8 +1057,11 @@ function startSyntheticRotation(autoState: RotationAngles, onUpdate: (timestamp:
     }
 
     onUpdate(now);
-    requestAnimationFrame(tick);
-  };
+  requestAnimationFrame(tick);
+};
 
   requestAnimationFrame(tick);
 }
+
+updateTelemetry();
+setInterval(updateTelemetry, 1000);

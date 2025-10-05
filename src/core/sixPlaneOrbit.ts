@@ -1,7 +1,45 @@
-import type { RotationAngles } from './rotationUniforms';
+import { rotationEnergy, type RotationAngles } from './rotationUniforms';
 
 const TAU = Math.PI * 2;
 export const SIX_PLANE_KEYS: ReadonlyArray<keyof RotationAngles> = ['xy', 'xz', 'yz', 'xw', 'yw', 'zw'];
+
+export interface RotationPlaneMetadata {
+  label: string;
+  summary: string;
+}
+
+export const SIX_PLANE_METADATA: Record<keyof RotationAngles, RotationPlaneMetadata> = {
+  xy: {
+    label: 'XY · Spatial spin',
+    summary:
+      'Classical rotation around the vertical axis. Watch the whole hull orbit while bloom traces the outer ring.'
+  },
+  xz: {
+    label: 'XZ · Pitch fold',
+    summary:
+      'Tilts the polychoron forward/back. Reveals top and bottom cells as highlights travel across the silhouette.'
+  },
+  yz: {
+    label: 'YZ · Lateral sweep',
+    summary:
+      'Slides the shape left/right around the X axis. Edge telemetry pulses from side struts as the visualizer breathes.'
+  },
+  xw: {
+    label: 'XW · Hyper reveal',
+    summary:
+      'Trades the X axis with the hidden W axis. Internal cells bloom outward creating depth ripples in the reactive layers.'
+  },
+  yw: {
+    label: 'YW · Vertical weave',
+    summary:
+      'Braids vertical columns into W. Expect shimmering light bands climbing the structure alongside higher confidence samples.'
+  },
+  zw: {
+    label: 'ZW · Depth breathe',
+    summary:
+      'Swaps depth with W so the object expands/contracts. Waterplane and audio envelopes surge as the projection compresses.'
+  }
+};
 
 export interface OrbitPlane {
   plane: keyof RotationAngles;
@@ -16,6 +54,12 @@ export interface OrbitSpec {
   planes: OrbitPlane[];
   coupling?: number;
   hyperCoupling?: number;
+}
+
+export interface LoomSample {
+  time: number;
+  energy: number;
+  angles: RotationAngles;
 }
 
 const GOLDEN_RATIO = (1 + Math.sqrt(5)) / 2;
@@ -79,5 +123,25 @@ export function createHarmonicOrbit(spec: OrbitSpec = defaultSpec()): (timeSecon
     }
 
     return angles;
+  };
+}
+
+export function createRotationLoom(
+  orbit: (timeSeconds: number) => RotationAngles,
+  length = 240
+): (timeSeconds: number) => LoomSample[] {
+  const samples: LoomSample[] = [];
+  return (timeSeconds: number) => {
+    const angles = orbit(timeSeconds);
+    const energy = rotationEnergy(angles);
+    samples.push({
+      time: timeSeconds,
+      energy,
+      angles: { ...angles }
+    });
+    if (samples.length > length) {
+      samples.shift();
+    }
+    return samples.slice();
   };
 }
