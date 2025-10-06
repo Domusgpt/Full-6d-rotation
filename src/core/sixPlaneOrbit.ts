@@ -1,7 +1,46 @@
-import type { RotationAngles } from './rotationUniforms';
+import { rotationEnergy, type RotationAngles } from './rotationUniforms';
 
 const TAU = Math.PI * 2;
 export const SIX_PLANE_KEYS: ReadonlyArray<keyof RotationAngles> = ['xy', 'xz', 'yz', 'xw', 'yw', 'zw'];
+
+export interface RotationPlaneMetadata {
+  label: string;
+  summary: string;
+  cues: string;
+}
+
+export const SIX_PLANE_METADATA: Record<keyof RotationAngles, RotationPlaneMetadata> = {
+  xy: {
+    label: 'XY · Spatial spin',
+    summary: 'Spatial orbit that anchors the viewer around the XY plane and carries the hull along a gentle revolution.',
+    cues: 'Bloom highlights trace the outer rim while extrument magnitude swells smoothly.'
+  },
+  xz: {
+    label: 'XZ · Pitch fold',
+    summary: 'Forward/back pitch that exposes the crown and base cells as the projection tilts toward the viewer.',
+    cues: 'Waterplane ripples sync with the motion and the mid-band audio layer brightens.'
+  },
+  yz: {
+    label: 'YZ · Lateral sweep',
+    summary: 'Side-to-side sweep that swaps left and right struts while the silhouette breathes laterally.',
+    cues: 'The telemetry loom alternates side pulses and the HUD glyph oscillates in phase.'
+  },
+  xw: {
+    label: 'XW · Hyper reveal',
+    summary: 'Hyper-rotation trading the X axis with W, drawing interior cells outward for inspection.',
+    cues: 'Confidence trend bumps upward and interior highlights flare as depth ripples cascade.'
+  },
+  yw: {
+    label: 'YW · Vertical weave',
+    summary: 'Vertical columns braid into the W axis, weaving a climbing shimmer through the projection.',
+    cues: 'Parserator confidence logs show immediate shifts and high-frequency audio partials activate.'
+  },
+  zw: {
+    label: 'ZW · Depth breathe',
+    summary: 'Depth trades with W causing the object to expand and contract in a slow breathing rhythm.',
+    cues: 'Pending-frame telemetry spikes with each inhale/exhale and bass reactive layers pulse.'
+  }
+};
 
 export interface OrbitPlane {
   plane: keyof RotationAngles;
@@ -16,6 +55,12 @@ export interface OrbitSpec {
   planes: OrbitPlane[];
   coupling?: number;
   hyperCoupling?: number;
+}
+
+export interface LoomSample {
+  time: number;
+  energy: number;
+  angles: RotationAngles;
 }
 
 const GOLDEN_RATIO = (1 + Math.sqrt(5)) / 2;
@@ -79,5 +124,25 @@ export function createHarmonicOrbit(spec: OrbitSpec = defaultSpec()): (timeSecon
     }
 
     return angles;
+  };
+}
+
+export function createRotationLoom(
+  orbit: (timeSeconds: number) => RotationAngles,
+  length = 240
+): (timeSeconds: number) => LoomSample[] {
+  const samples: LoomSample[] = [];
+  return (timeSeconds: number) => {
+    const angles = orbit(timeSeconds);
+    const energy = rotationEnergy(angles);
+    samples.push({
+      time: timeSeconds,
+      energy,
+      angles: { ...angles }
+    });
+    if (samples.length > length) {
+      samples.shift();
+    }
+    return samples.slice();
   };
 }
