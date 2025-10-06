@@ -65,3 +65,14 @@ export const ZERO_ROTATION: RotationAngles = {
   yw: 0,
   zw: 0
 };
+
+export function rotationEnergy(angles: RotationAngles): number {
+  return (
+    Math.abs(angles.xy) +
+    Math.abs(angles.xz) +
+    Math.abs(angles.yz) +
+    Math.abs(angles.xw) +
+    Math.abs(angles.yw) +
+    Math.abs(angles.zw)
+  );
+}
